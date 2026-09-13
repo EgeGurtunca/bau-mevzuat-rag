@@ -1,0 +1,112 @@
+# bau-mevzuat-rag
+
+Turkish RAG question-answering over Bahçeşehir University regulations. Every answer cites the exact
+article (`Madde n`) it came from, and three retrieval strategies — dense, BM25, hybrid (RRF) — are
+compared on a human-verified eval set.
+
+<!-- demo: docs/demo.gif -->
+
+**Stack:** Python 3.12 · FastAPI · Gemini (`gemini-2.5-flash`, `gemini-embedding-001`) · Qdrant ·
+rank-bm25 · pytest · Docker. No LangChain — every step is ~50 lines you can read.
+
+## Quickstart
+
+```bash
+python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Linux/mac: .venv/bin/pip
+cp .env.example .env                                              # add your GEMINI_API_KEY
+python -m app.ingest                                              # data/raw/* -> chunks + Qdrant (local mode)
+uvicorn app.api:app --reload                                      # http://localhost:8000
+```
+
+Drop regulation files (`.pdf`, `.docx`, `.html`, `.txt`) into `data/raw/`. The file name becomes the
+document title shown in citations, so name them like `BAU Önlisans ve Lisans Yönetmeliği.pdf`.
+
+### API
+
+```
+POST /ask   {"question": "...", "mode": "hybrid" | "dense" | "bm25", "k": 5}
+        ->  {"answer": "... [1] ...", "citations": [{doc_title, article_no, heading, text}], "mode", "latency_ms"}
+GET  /health
+GET  /       chat page
+```
+
+### Docker
+
+```bash
+docker compose up -d
+docker compose run --rm app python -m app.ingest
+```
+
+## How it works
+
+```
+data/raw/*  ──ingest──►  article chunks ("MADDE n")  ──embed──►  Qdrant
+                                                    └──────────►  BM25 (in-process)
+
+question ──► dense top-10 ─┐
+         └─► BM25  top-10 ─┴─► RRF fusion ─► top-5 ─► prompt ─► Gemini ─► answer + [n] citations
+```
+
+- **Chunking:** one chunk per article. Regulations are written as `MADDE 5 – (1) ... (2) ...`, so an article
+  is the natural unit of meaning and the natural unit to cite. Articles over 600 words are split at paragraph
+  `(n)` boundaries; documents without article structure fall back to 400-word windows with 50-word overlap.
+- **Retrieval:** dense = Gemini embeddings (768-d) in Qdrant; BM25 over 5-character prefixes (a cheap Turkish
+  stemmer — `sınavlara`, `sınavın`, `sınav` all become `sınav`); hybrid = Reciprocal Rank Fusion of both lists.
+- **Grounding:** the model only sees the retrieved articles, must mark every claim with `[n]`, and must answer
+  exactly `Bu konuda yönetmeliklerde bilgi bulamadım.` when the context is insufficient. Citation markers that
+  don't map to a retrieved chunk are stripped. If retrieval returns nothing, the LLM is not called at all.
+- **Guardrails:** question length 3–500 chars, `k ≤ 10`, retry with backoff on 429/5xx, 503 on backend failure.
+
+## Evaluation
+
+```bash
+python -m eval.make_questions      # drafts 40 Q/A pairs from random articles -> eval/questions.draft.jsonl
+# review by hand, keep ~30 -> eval/questions.jsonl
+python -m eval.run_eval --no-judge # retrieval metrics only
+python -m eval.run_eval            # + LLM-judged faithfulness / correctness
+```
+
+| mode | Recall@5 | MRR | Faithfulness | Correctness |
+|---|---|---|---|---|
+| dense | – | – | – | – |
+| bm25 | – | – | – | – |
+| hybrid | – | – | – | – |
+
+_(n = 30 human-verified questions; table is filled in after the first full run.)_
+
+- **Recall@5 / MRR** — is the article the question was written from in the top 5, and how high.
+- **Faithfulness** — every claim in the answer is supported by the cited articles (LLM judge, binary).
+- **Correctness** — the answer agrees with the human-verified reference (LLM judge, binary).
+
+Questions are drafted by the model from a random article, then reviewed and edited by a human. A question
+the model wrote *and* graded would be circular; the human pass breaks that loop.
+
+## Tests
+
+```bash
+pytest
+```
+
+25 tests, no network: chunking, RRF, BM25, citation parsing, API (LLM and retriever mocked), eval metrics.
+
+## Tracing (optional)
+
+`pip install -e ".[tracing]"` and set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`; every `embed` and
+`generate` call is traced. Without the keys nothing changes.
+
+## Roadmap
+
+- Reranker (LLM listwise or cross-encoder) as a fourth mode in the eval table
+- Multi-turn chat with question rewriting
+- Telegram bot front end
+
+## Project layout
+
+```
+app/        config, llm (Gemini + retry), chunking, ingest, retrieve, answer, api
+static/     single-page chat UI
+eval/       question drafting, eval runner, results
+tests/      pytest
+data/raw/   source regulations (you supply these)
+data/index/ chunks.jsonl + Qdrant local storage (generated)
+```
