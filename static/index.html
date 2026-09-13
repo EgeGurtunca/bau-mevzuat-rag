@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BAU Mevzuat Asistanı</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .sub { color: #777; margin: 0 0 1.5rem; font-size: .9rem; }
+  form { display: grid; gap: .5rem; }
+  textarea { width: 100%; min-height: 4rem; padding: .6rem; font: inherit; box-sizing: border-box; }
+  .row { display: flex; gap: .5rem; align-items: center; }
+  select, button { font: inherit; padding: .45rem .8rem; }
+  button { cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  #answer { white-space: pre-wrap; padding: 1rem; border: 1px solid #8884; border-radius: 6px; margin-top: 1.25rem; min-height: 2rem; }
+  #answer:empty { display: none; }
+  .meta { color: #777; font-size: .8rem; margin-top: .4rem; }
+  details { margin-top: .75rem; }
+  .cite { border-left: 3px solid #8886; padding: .4rem .75rem; margin: .5rem 0; font-size: .9rem; }
+  .cite b { display: block; margin-bottom: .2rem; }
+  .err { color: #c33; }
+</style>
+</head>
+<body>
+<h1>BAU Mevzuat Asistanı</h1>
+<p class="sub">Bahçeşehir Üniversitesi yönetmeliklerine madde göstererek cevap verir. Resmî bir kaynak değildir.</p>
+
+<form id="f">
+  <textarea id="q" placeholder="Örn. Bütünleme sınavına kimler girebilir?" required minlength="3" maxlength="500"></textarea>
+  <div class="row">
+    <label>Arama:
+      <select id="mode">
+        <option value="hybrid">hybrid (BM25 + dense)</option>
+        <option value="dense">dense</option>
+        <option value="bm25">bm25</option>
+      </select>
+    </label>
+    <button id="btn" type="submit">Sor</button>
+  </div>
+</form>
+
+<div id="answer"></div>
+<div class="meta" id="meta"></div>
+<details id="cites" hidden><summary>Kaynaklar</summary><div id="citelist"></div></details>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+$("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("btn").disabled = true;
+  $("answer").textContent = "…";
+  $("meta").textContent = "";
+  $("cites").hidden = true;
+  try {
+    const r = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: $("q").value.trim(), mode: $("mode").value }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.statusText);
+    $("answer").textContent = body.answer;
+    $("meta").textContent = `${body.mode} · ${body.latency_ms} ms · ${body.citations.length} kaynak`;
+    $("citelist").innerHTML = body.citations.map((c, i) => {
+      const where = c.article_no ? `Madde ${c.article_no}` : "";
+      const head = c.heading ? ` — ${c.heading}` : "";
+      return `<div class="cite"><b>[${i + 1}] ${esc(c.doc_title)}, ${where}${esc(head)}</b>${esc(c.text)}</div>`;
+    }).join("");
+    $("cites").hidden = body.citations.length === 0;
+  } catch (err) {
+    $("answer").innerHTML = `<span class="err">Hata: ${esc(err.message)}</span>`;
+  } finally {
+    $("btn").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
