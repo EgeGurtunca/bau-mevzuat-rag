@@ -84,7 +84,8 @@ first version took 9.7 s and I assumed that was just local inference. Measuring 
 call had a fixed ~2 s cost, and it turned out to be `localhost` resolving to `::1` first on Windows while
 Ollama only listens on IPv4 — two calls per question, four seconds of nothing. `127.0.0.1` fixed it. The
 other half was the model writing 400-token essays; capping the prompt at "3–4 sentences" brought generation
-to ~50 tokens. Both were invisible until I timed each stage separately.
+to ~50 tokens. Both were invisible until I timed each stage separately. A side effect I didn't expect: the
+shorter answers also scored higher on faithfulness (0.933 → 0.967) — less room to drift from the source.
 
 ## Evaluation
 
@@ -99,9 +100,9 @@ python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 
 | mode | Recall@5 | MRR | Faithfulness | Correctness |
 |---|---|---|---|---|
-| dense | 1.000 | **0.864** | 0.933 | 0.933 |
-| bm25 | 0.933 | 0.756 | 0.967 | 0.967 |
-| hybrid | 1.000 | 0.861 | 0.933 | 0.933 |
+| dense | 1.000 | **0.864** | 0.967 | 0.967 |
+| bm25 | 0.933 | 0.756 | 1.000 | 1.000 |
+| hybrid | 1.000 | 0.861 | 0.967 | 0.967 |
 
 _30 human-reviewed questions over 100 article chunks. `qwen2.5:7b` answers and judges, `bge-m3` embeds.
 Raw numbers per run are in `eval/results/`._
