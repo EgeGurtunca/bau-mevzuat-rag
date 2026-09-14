@@ -47,7 +47,7 @@ data/raw/*  ──ingest──►  article chunks ("MADDE n")  ──embed──
                                                     └──────────►  BM25 (in-process)
 
 question ──► dense top-10 ─┐
-         └─► BM25  top-10 ─┴─► RRF fusion ─► top-5 ─► prompt ─► Gemini ─► answer + [n] citations
+         └─► BM25  top-10 ─┴─► RRF fusion ─► top-5 ─► prompt ─► Ollama ─► answer + [n] citations
 ```
 
 - **Chunking:** one chunk per article. Regulations are written as `MADDE 5 – (1) ... (2) ...`, so an article
@@ -106,7 +106,7 @@ pytest
 ## Project layout
 
 ```
-app/        config, llm (Gemini + retry), chunking, ingest, retrieve, answer, api
+app/        config, llm (Ollama + retry), chunking, ingest, retrieve, answer, api
 static/     single-page chat UI
 eval/       question drafting, eval runner, results
 tests/      pytest
