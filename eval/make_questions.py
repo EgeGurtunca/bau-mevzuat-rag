@@ -4,7 +4,6 @@ Run: python -m eval.make_questions
 """
 import json
 import random
-import time
 
 from app import config, llm
 from app.retrieve import load_chunks
@@ -19,7 +18,7 @@ MADDE:
 
 
 def main(n: int = 40, seed: int = 7) -> None:
-    config.require_api_key()
+    llm.require_ollama()
     chunks = [c for c in load_chunks() if len(c.text.split()) > 30]
     random.Random(seed).shuffle(chunks)
     out = config.ROOT / "eval" / "questions.draft.jsonl"
@@ -35,7 +34,6 @@ def main(n: int = 40, seed: int = 7) -> None:
             f.write(json.dumps({"question": qa["question"], "expected_chunk_ids": [c.id],
                                 "reference_answer": qa["answer"]}, ensure_ascii=False) + "\n")
             written += 1
-            time.sleep(4)  # free-tier RPM
     print(f"wrote {written} drafts to {out}; review them and save the good ones as eval/questions.jsonl")
 
 

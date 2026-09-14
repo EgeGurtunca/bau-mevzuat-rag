@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import config, llm  # noqa: F401  (llm re-exported so tests can monkeypatch api.llm.generate)
+from app import config, llm
 from app.answer import answer
 from app.retrieve import Retriever
 
@@ -17,7 +17,7 @@ retriever: Retriever | None = None
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global retriever
-    config.require_api_key()
+    llm.require_ollama()
     retriever = Retriever.load()
     yield
 

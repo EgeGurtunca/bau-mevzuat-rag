@@ -6,17 +6,20 @@ compared on a human-verified eval set.
 
 <!-- demo: docs/demo.gif -->
 
-**Stack:** Python 3.12 · FastAPI · Gemini (`gemini-2.5-flash`, `gemini-embedding-001`) · Qdrant ·
-rank-bm25 · pytest · Docker. No LangChain — every step is ~50 lines you can read.
+**Stack:** Python 3.12 · FastAPI · Ollama (`qwen2.5:7b`, `bge-m3`) · Qdrant · rank-bm25 · pytest · Docker.
+Fully local — no API keys, no per-token cost. No LangChain — every step is ~50 lines you can read.
 
 ## Quickstart
 
 ```bash
+ollama pull bge-m3 && ollama pull qwen2.5:7b                      # https://ollama.com — ~6 GB total
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Linux/mac: .venv/bin/pip
-cp .env.example .env                                              # add your GEMINI_API_KEY
 python -m app.ingest                                              # data/raw/* -> chunks + Qdrant (local mode)
 uvicorn app.api:app --reload                                      # http://localhost:8000
 ```
+
+Runs on any machine with ~8 GB of GPU/unified memory; on CPU it works but answers take longer.
+Models are overridable via `.env` (see `.env.example`) — any Ollama chat/embedding model works.
 
 Drop regulation files (`.pdf`, `.docx`, `.html`, `.txt`) into `data/raw/`. The file name becomes the
 document title shown in citations, so name them like `BAU Önlisans ve Lisans Yönetmeliği.pdf`.
@@ -33,7 +36,7 @@ GET  /       chat page
 ### Docker
 
 ```bash
-docker compose up -d
+docker compose up -d                                   # app + Qdrant; Ollama stays on the host
 docker compose run --rm app python -m app.ingest
 ```
 
@@ -50,12 +53,12 @@ question ──► dense top-10 ─┐
 - **Chunking:** one chunk per article. Regulations are written as `MADDE 5 – (1) ... (2) ...`, so an article
   is the natural unit of meaning and the natural unit to cite. Articles over 600 words are split at paragraph
   `(n)` boundaries; documents without article structure fall back to 400-word windows with 50-word overlap.
-- **Retrieval:** dense = Gemini embeddings (768-d) in Qdrant; BM25 over 5-character prefixes (a cheap Turkish
+- **Retrieval:** dense = bge-m3 embeddings (1024-d, multilingual, strong on Turkish) in Qdrant; BM25 over 5-character prefixes (a cheap Turkish
   stemmer — `sınavlara`, `sınavın`, `sınav` all become `sınav`); hybrid = Reciprocal Rank Fusion of both lists.
 - **Grounding:** the model only sees the retrieved articles, must mark every claim with `[n]`, and must answer
   exactly `Bu konuda yönetmeliklerde bilgi bulamadım.` when the context is insufficient. Citation markers that
   don't map to a retrieved chunk are stripped. If retrieval returns nothing, the LLM is not called at all.
-- **Guardrails:** question length 3–500 chars, `k ≤ 10`, retry with backoff on 429/5xx, 503 on backend failure.
+- **Guardrails:** question length 3–500 chars, `k ≤ 10`, retry with backoff on 5xx/connection errors, 503 on backend failure.
 
 ## Evaluation
 
@@ -87,7 +90,7 @@ the model wrote *and* graded would be circular; the human pass breaks that loop.
 pytest
 ```
 
-25 tests, no network: chunking, RRF, BM25, citation parsing, API (LLM and retriever mocked), eval metrics.
+27 tests, no network: chunking, RRF, BM25, citation parsing, API (LLM and retriever mocked), eval metrics.
 
 ## Tracing (optional)
 

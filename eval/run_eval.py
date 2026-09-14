@@ -1,7 +1,6 @@
 """Retrieval + answer quality per mode. Run: python -m eval.run_eval [--modes dense,bm25,hybrid] [--no-judge]"""
 import argparse
 import json
-import time
 from datetime import date
 
 from app import config, llm
@@ -44,7 +43,7 @@ def main() -> None:
     ap.add_argument("--modes", default="dense,bm25,hybrid")
     ap.add_argument("--no-judge", action="store_true", help="retrieval metrics only (no answer generation)")
     args = ap.parse_args()
-    config.require_api_key()
+    llm.require_ollama()
     with open(config.ROOT / "eval" / "questions.jsonl", encoding="utf-8") as f:
         qs = [json.loads(line) for line in f if line.strip()]
     r = Retriever.load()
@@ -62,7 +61,6 @@ def main() -> None:
                 faith, corr = judge(q["question"], q["reference_answer"], sources, ans)
                 agg["faithfulness"] += faith
                 agg["correctness"] += corr
-                time.sleep(6)  # free-tier RPM
         results[mode] = {k: round(v / len(qs), 3) for k, v in agg.items()}
         print(f"{mode}: {results[mode]}", flush=True)
     print("\n| mode | Recall@5 | MRR | Faithfulness | Correctness |\n|---|---|---|---|---|")
