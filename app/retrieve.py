@@ -1,4 +1,5 @@
 """Dense (Qdrant), sparse (BM25) and hybrid (RRF) retrieval over the chunk index."""
+import atexit
 import re
 import uuid
 
@@ -32,7 +33,9 @@ def point_id(chunk_id: str) -> str:
 
 
 def open_qdrant() -> QdrantClient:
-    return QdrantClient(url=config.QDRANT_URL) if config.QDRANT_URL else QdrantClient(path=config.QDRANT_PATH)
+    client = QdrantClient(url=config.QDRANT_URL) if config.QDRANT_URL else QdrantClient(path=config.QDRANT_PATH)
+    atexit.register(client.close)  # local mode holds a file lock; release it before interpreter teardown
+    return client
 
 
 def load_chunks() -> list[Chunk]:
