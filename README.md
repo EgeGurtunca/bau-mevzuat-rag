@@ -88,9 +88,9 @@ python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 
 | mode | Recall@5 | MRR | Faithfulness | Correctness |
 |---|---|---|---|---|
-| dense | 1.000 | **0.847** | 0.933 | 0.933 |
+| dense | 1.000 | **0.864** | 0.933 | 0.933 |
 | bm25 | 0.933 | 0.756 | 0.967 | 0.967 |
-| hybrid | 1.000 | 0.844 | 0.933 | 0.933 |
+| hybrid | 1.000 | 0.861 | 0.933 | 0.933 |
 
 _30 human-reviewed questions over 100 article chunks. `qwen2.5:7b` answers and judges, `bge-m3` embeds.
 Raw numbers per run are in `eval/results/`._
