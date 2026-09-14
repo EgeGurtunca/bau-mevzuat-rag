@@ -47,7 +47,7 @@ def build_chunks(raw_dir: Path) -> list[Chunk]:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    config.require_api_key()
+    llm.require_ollama()
     chunks = build_chunks(config.RAW_DIR)
     if not chunks:
         sys.exit(f"No documents found in {config.RAW_DIR}")
