@@ -74,11 +74,15 @@ python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 
 | mode | Recall@5 | MRR | Faithfulness | Correctness |
 |---|---|---|---|---|
-| dense | – | – | – | – |
-| bm25 | – | – | – | – |
-| hybrid | – | – | – | – |
+| dense | 1.000 | 0.825 | 0.967 | 0.967 |
+| bm25 | 0.933 | 0.739 | 0.900 | 0.900 |
+| hybrid | 1.000 | **0.828** | 0.967 | **1.000** |
 
-_(n = 30 human-verified questions; table is filled in after the first full run.)_
+_n = 30 human-verified questions over 100 article chunks; `qwen2.5:7b` answers and judges, `bge-m3` embeds.
+Run on 2026-09-14, raw numbers in `eval/results/`._
+
+BM25 alone misses 2/30 (paraphrased questions with no shared stem); dense finds everything but ranks it
+lower on average; fusing the two gives the best ranking and the only mode with no incorrect answers.
 
 - **Recall@5 / MRR** — is the article the question was written from in the top 5, and how high.
 - **Faithfulness** — every claim in the answer is supported by the cited articles (LLM judge, binary).
