@@ -42,3 +42,9 @@ def test_window_fallback():
 
 def test_slugify():
     assert slugify("BAU Önlisans ve Lisans Yönetmeliği") == "bau-onlisans-ve-lisans-yonetmeligi"
+
+
+def test_next_heading_not_leaked_into_previous_chunk():
+    chunks = split(SAMPLE, "T", "t")
+    assert not chunks[0].text.rstrip().endswith("Kapsam")
+    assert not chunks[1].text.rstrip().endswith("Dayanak")

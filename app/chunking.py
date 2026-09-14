@@ -35,6 +35,9 @@ def split(text: str, doc_title: str, slug: str) -> list[Chunk]:
         body = text[m.start():end].strip()
         no = int(m.group(1))
         heading = _heading_before(text, m.start())
+        next_heading = _heading_before(text, matches[i + 1].start()) if i + 1 < len(matches) else None
+        if next_heading and body.endswith(next_heading):  # the next article's heading sits above it, inside our slice
+            body = body[: -len(next_heading)].rstrip()
         parts = _split_long(body)
         for j, part in enumerate(parts):
             cid = f"{slug}:{no}" if len(parts) == 1 else f"{slug}:{no}.{j + 1}"

@@ -12,7 +12,10 @@ def test_build_chunks_from_txt_and_skips_broken_files(tmp_path: Path):
     assert chunks[0].doc_title == "Test Yonetmeligi"
 
 
-def test_read_html_strips_tags(tmp_path: Path):
+def test_read_html_one_line_per_block_with_collapsed_whitespace(tmp_path: Path):
     p = tmp_path / "x.html"
-    p.write_text("<html><body><p>MADDE 1 – (1) Metin.</p><script>x()</script></body></html>", encoding="utf-8")
-    assert "MADDE 1" in read_text(p) and "<p>" not in read_text(p)
+    p.write_text(
+        "<html><body><p><b><span>Dersten\nçekilme</span></b></p>"
+        "<p><span>MADDE 25\n–</span><span> (1) Metin.</span></p><script>x()</script></body></html>",
+        encoding="utf-8")
+    assert read_text(p) == "Dersten çekilme\nMADDE 25 – (1) Metin."

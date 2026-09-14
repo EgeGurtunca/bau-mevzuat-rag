@@ -21,7 +21,8 @@ uvicorn app.api:app --reload                                      # http://local
 Runs on any machine with ~8 GB of GPU/unified memory; on CPU it works but answers take longer.
 Models are overridable via `.env` (see `.env.example`) — any Ollama chat/embedding model works.
 
-Drop regulation files (`.pdf`, `.docx`, `.html`, `.txt`) into `data/raw/`. The file name becomes the
+Drop regulation files (`.pdf`, `.docx`, `.html`, `.txt`) into `data/raw/`. The two included files are the
+raw HTML of the BAU regulations from [mevzuat.gov.tr](https://www.mevzuat.gov.tr) (nos. 33950 and 42316). The file name becomes the
 document title shown in citations, so name them like `BAU Önlisans ve Lisans Yönetmeliği.pdf`.
 
 ### API

@@ -21,12 +21,31 @@ def read_text(path: Path) -> str:
         from docx import Document
         return "\n".join(p.text for p in Document(str(path)).paragraphs)
     if ext in (".html", ".htm"):
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(path.read_text(encoding="utf-8", errors="ignore"), "html.parser")
-        for tag in soup(["script", "style"]):
-            tag.decompose()
-        return soup.get_text("\n")
+        return _html_to_text(path.read_text(encoding="utf-8", errors="ignore"))
     return path.read_text(encoding="utf-8", errors="ignore")
+
+
+BLOCK_TAGS = ["p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "div"]
+
+
+def _html_to_text(html: str) -> str:
+    """One line per leaf block element, whitespace inside a block collapsed.
+
+    Word-exported HTML (mevzuat.gov.tr) wraps lines *inside* spans, so a naive get_text("\\n")
+    splits headings like "Dersten çekilme" over two lines and breaks article detection.
+    """
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style"]):
+        tag.decompose()
+    lines = []
+    for block in soup.find_all(BLOCK_TAGS):
+        if block.find(BLOCK_TAGS):  # not a leaf; its children will be visited
+            continue
+        text = " ".join(block.get_text(" ").split())
+        if text:
+            lines.append(text)
+    return "\n".join(lines) if lines else " ".join(soup.get_text(" ").split())
 
 
 def build_chunks(raw_dir: Path) -> list[Chunk]:
