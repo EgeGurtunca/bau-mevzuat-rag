@@ -40,6 +40,9 @@ docker compose up -d                                   # app + Qdrant; Ollama st
 docker compose run --rm app python -m app.ingest
 ```
 
+Qdrant's embedded local mode (the default) allows one process at a time — you can't run the API and the eval
+together. The Compose setup runs Qdrant as a server, which removes that limit.
+
 ## How it works
 
 ```
@@ -81,8 +84,13 @@ _(n = 30 human-verified questions; table is filled in after the first full run.)
 - **Faithfulness** — every claim in the answer is supported by the cited articles (LLM judge, binary).
 - **Correctness** — the answer agrees with the human-verified reference (LLM judge, binary).
 
-Questions are drafted by the model from a random article, then reviewed and edited by a human. A question
-the model wrote *and* graded would be circular; the human pass breaks that loop.
+Questions are drafted by the model from a random article, then reviewed and edited by a human (9 of 39 drafts
+were dropped as meta, garbled or duplicate; 11 were rewritten). A question the model wrote *and* graded would
+be circular; the human pass breaks that loop.
+
+**Known limitation:** because each question is generated *from* its target article, it shares that article's
+vocabulary, which flatters retrieval — Recall@5 saturates on a 100-chunk corpus. MRR is the more discriminating
+number here. A harder set (paraphrased student questions, questions with no answer in the corpus) is on the roadmap.
 
 ## Tests
 
@@ -99,7 +107,9 @@ pytest
 
 ## Roadmap
 
+- Harder eval set: paraphrased questions + unanswerable questions (measures abstention)
 - Reranker (LLM listwise or cross-encoder) as a fourth mode in the eval table
+- Second embedding model (`nomic-embed-text`) as a Turkish-vs-English baseline row
 - Multi-turn chat with question rewriting
 - Telegram bot front end
 
