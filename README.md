@@ -1,29 +1,34 @@
 # bau-mevzuat-rag
 
-Turkish RAG question-answering over Bahçeşehir University regulations. Every answer cites the exact
-article (`Madde n`) it came from, and three retrieval strategies — dense, BM25, hybrid (RRF) — are
-compared on a human-verified eval set.
+Ask a question about Bahçeşehir University's regulations and get an answer that points at the exact article
+it came from. Runs entirely on my laptop — no API keys, no cloud.
 
-<!-- demo: docs/demo.gif -->
+<!-- docs/demo.gif -->
 
-**Stack:** Python 3.12 · FastAPI · Ollama (`qwen2.5:7b`, `bge-m3`) · Qdrant · rank-bm25 · pytest · Docker.
-Fully local — no API keys, no per-token cost. No LangChain — every step is ~50 lines you can read.
+I built this because I kept getting the same questions from friends ("can I freeze my registration?",
+"what happens if I miss the final?") and the answers are all in two long documents nobody reads. It's also
+the second project in a series where I'm working through the LLM stack one layer at a time — this one is
+the retrieval layer. I wanted to actually understand chunking, hybrid search and evaluation rather than call
+a framework, so there's no LangChain here; every step is a short file I wrote and can explain.
 
-## Quickstart
+**Stack:** Python 3.12 · FastAPI · Ollama (`qwen2.5:7b` for answers, `bge-m3` for embeddings) · Qdrant ·
+rank-bm25 · pytest · Docker
+
+## Running it
 
 ```bash
-ollama pull bge-m3 && ollama pull qwen2.5:7b                      # https://ollama.com — ~6 GB total
+ollama pull bge-m3 && ollama pull qwen2.5:7b                      # https://ollama.com — about 6 GB
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Linux/mac: .venv/bin/pip
-python -m app.ingest                                              # data/raw/* -> chunks + Qdrant (local mode)
+python -m app.ingest                                              # data/raw/* -> chunks + Qdrant
 uvicorn app.api:app --reload                                      # http://localhost:8000
 ```
 
-Runs on any machine with ~8 GB of GPU/unified memory; on CPU it works but answers take longer.
-Models are overridable via `.env` (see `.env.example`) — any Ollama chat/embedding model works.
+Anything with ~8 GB of GPU or unified memory is fine. It works on CPU too, just slower. Models can be swapped
+through `.env` (see `.env.example`) — any Ollama chat/embedding model works.
 
-Drop regulation files (`.pdf`, `.docx`, `.html`, `.txt`) into `data/raw/`. The two included files are the
-raw HTML of the BAU regulations from [mevzuat.gov.tr](https://www.mevzuat.gov.tr) (nos. 33950 and 42316). The file name becomes the
-document title shown in citations, so name them like `BAU Önlisans ve Lisans Yönetmeliği.pdf`.
+The two regulations in `data/raw/` are the raw HTML from [mevzuat.gov.tr](https://www.mevzuat.gov.tr)
+(nos. 33950 and 42316). Drop any other `.pdf`, `.docx`, `.html` or `.txt` in there and re-run ingest; the
+file name becomes the document title in citations.
 
 ### API
 
@@ -31,7 +36,7 @@ document title shown in citations, so name them like `BAU Önlisans ve Lisans Y�
 POST /ask   {"question": "...", "mode": "hybrid" | "dense" | "bm25", "k": 5}
         ->  {"answer": "... [1] ...", "citations": [{doc_title, article_no, heading, text}], "mode", "latency_ms"}
 GET  /health
-GET  /       chat page
+GET  /       the chat page
 ```
 
 ### Docker
@@ -41,8 +46,8 @@ docker compose up -d                                   # app + Qdrant; Ollama st
 docker compose run --rm app python -m app.ingest
 ```
 
-Qdrant's embedded local mode (the default) allows one process at a time — you can't run the API and the eval
-together. The Compose setup runs Qdrant as a server, which removes that limit.
+Qdrant's embedded mode (the default) only allows one process at a time, so you can't run the API and the
+eval together. Compose runs Qdrant as a proper server and removes that limit.
 
 ## How it works
 
@@ -54,21 +59,29 @@ question ──► dense top-10 ─┐
          └─► BM25  top-10 ─┴─► RRF fusion ─► top-5 ─► prompt ─► Ollama ─► answer + [n] citations
 ```
 
-- **Chunking:** one chunk per article. Regulations are written as `MADDE 5 – (1) ... (2) ...`, so an article
-  is the natural unit of meaning and the natural unit to cite. Articles over 600 words are split at paragraph
-  `(n)` boundaries; documents without article structure fall back to 400-word windows with 50-word overlap.
-- **Retrieval:** dense = bge-m3 embeddings (1024-d, multilingual, strong on Turkish) in Qdrant; BM25 over 5-character prefixes (a cheap Turkish
-  stemmer — `sınavlara`, `sınavın`, `sınav` all become `sınav`); hybrid = Reciprocal Rank Fusion of both lists.
-- **Grounding:** the model only sees the retrieved articles, must mark every claim with `[n]`, and must answer
-  exactly `Bu konuda yönetmeliklerde bilgi bulamadım.` when the context is insufficient. Citation markers that
-  don't map to a retrieved chunk are stripped. If retrieval returns nothing, the LLM is not called at all.
-- **Guardrails:** question length 3–500 chars, `k ≤ 10`, retry with backoff on 5xx/connection errors, 503 on backend failure.
+**Chunking.** Turkish regulations are written as `MADDE 5 – (1) ... (2) ...`, so one article is one chunk.
+That's the natural unit of meaning and the natural unit to cite. Articles over 600 words get split at
+paragraph `(n)` boundaries; anything without article structure falls back to 400-word windows with overlap.
+
+**Retrieval.** Three modes so I could compare them: dense (bge-m3, 1024-d, in Qdrant), BM25 over 5-character
+prefixes (a cheap Turkish stemmer — `sınavlara`, `sınavın`, `sınav` all become `sınav`), and hybrid, which
+fuses the two with Reciprocal Rank Fusion. Hybrid is the default.
+
+**Grounding.** The model only sees the retrieved articles, has to tag each claim with `[n]`, and has to answer
+exactly `Bu konuda yönetmeliklerde bilgi bulamadım.` when the context doesn't cover the question. Citation
+markers that don't map to a retrieved chunk get stripped, and the rest are renumbered so the answer and the
+citation list always agree. If retrieval comes back empty, the model isn't called at all.
+
+**Guardrails.** Question length 3–500 chars, `k ≤ 10`, retry with backoff on 5xx/connection errors, 503
+instead of a stack trace when the backend is down.
 
 ## Evaluation
 
+I didn't want to ship a chatbot that "seems fine", so there's an eval harness:
+
 ```bash
 python -m eval.make_questions      # drafts 40 Q/A pairs from random articles -> eval/questions.draft.jsonl
-# review by hand, keep ~30 -> eval/questions.jsonl
+# I review these by hand and keep the good ones -> eval/questions.jsonl
 python -m eval.run_eval --no-judge # retrieval metrics only
 python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 ```
@@ -79,26 +92,28 @@ python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 | bm25 | 0.933 | 0.756 | 0.967 | 0.967 |
 | hybrid | 1.000 | 0.844 | 0.933 | 0.933 |
 
-_n = 30 human-verified questions over 100 article chunks; `qwen2.5:7b` answers and judges, `bge-m3` embeds.
-Run on 2026-09-14, raw numbers in `eval/results/`._
+_30 human-reviewed questions over 100 article chunks. `qwen2.5:7b` answers and judges, `bge-m3` embeds.
+Raw numbers per run are in `eval/results/`._
 
-What the table says: BM25 alone misses 2/30 questions (paraphrases with no shared word stem), so dense and
-hybrid win on retrieval. The judge columns differ by one question (1/30 = 0.033), which is inside the noise of
-a 30-item set — the answer quality is effectively the same across modes once the right article is in the top 5.
-Hybrid is the default because it keeps dense's recall while staying robust to exact-term queries (article
-numbers, grade letters) where BM25 is strongest.
+- **Recall@5 / MRR** — is the article the question was written from in the top 5, and how high up.
+- **Faithfulness** — every claim in the answer is backed by a cited article (LLM judge, yes/no).
+- **Correctness** — the answer matches the reference I checked by hand (LLM judge, yes/no).
 
-- **Recall@5 / MRR** — is the article the question was written from in the top 5, and how high.
-- **Faithfulness** — every claim in the answer is supported by the cited articles (LLM judge, binary).
-- **Correctness** — the answer agrees with the human-verified reference (LLM judge, binary).
+What I take from the table: BM25 alone misses 2 of 30 questions (paraphrases with no shared stem), so
+dense and hybrid clearly win on retrieval. The judge columns differ by a single question (1/30 = 0.033),
+which is noise at this sample size — once the right article is in the top 5, answer quality is the same
+across modes. I keep hybrid as the default because it has dense's recall and stays robust on exact-term
+queries (article numbers, grade letters) where BM25 is strongest.
 
-Questions are drafted by the model from a random article, then reviewed and edited by a human (9 of 39 drafts
-were dropped as meta, garbled or duplicate; 11 were rewritten). A question the model wrote *and* graded would
-be circular; the human pass breaks that loop.
+**Two honest caveats.** The questions are generated *from* their target article, so they share its
+vocabulary, which flatters retrieval — Recall@5 saturating on a 100-chunk corpus says more about the test
+set than the system. MRR is the number I actually watch. And 30 questions is small; the judge columns move
+by one question between runs.
 
-**Known limitation:** because each question is generated *from* its target article, it shares that article's
-vocabulary, which flatters retrieval — Recall@5 saturates on a 100-chunk corpus. MRR is the more discriminating
-number here. A harder set (paraphrased student questions, questions with no answer in the corpus) is on the roadmap.
+The most useful thing the eval did was catch chunking bugs. The regulations come as Word-exported HTML that
+wraps lines *inside* `<span>`s, so a naive HTML-to-text split headings like "Dersten çekilme" over two lines
+and leaked the next article's heading into the previous chunk. Section headers ("BEŞİNCİ BÖLÜM …") leaked the
+same way. Each cleanup moved dense MRR: 0.825 → 0.847 → 0.864. Chunk quality *is* retrieval quality.
 
 ## Tests
 
@@ -106,28 +121,24 @@ number here. A harder set (paraphrased student questions, questions with no answ
 pytest
 ```
 
-27 tests, no network: chunking, RRF, BM25, citation parsing, API (LLM and retriever mocked), eval metrics.
+29 tests, no network: chunking edge cases, RRF, BM25, citation parsing and renumbering, the API with the
+LLM and retriever mocked, eval metrics.
 
-## Tracing (optional)
+## What's next
 
-`pip install -e ".[tracing]"` and set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`; every `embed` and
-`generate` call is traced. Without the keys nothing changes.
-
-## Roadmap
-
-- Harder eval set: paraphrased questions + unanswerable questions (measures abstention)
-- Reranker (LLM listwise or cross-encoder) as a fourth mode in the eval table
-- Second embedding model (`nomic-embed-text`) as a Turkish-vs-English baseline row
+- A harder eval set: paraphrased questions, and questions with no answer in the corpus (to measure abstention)
+- A reranker as a fourth mode in the table
+- `nomic-embed-text` as a second embedding row, to show the Turkish-vs-English gap with numbers
 - Multi-turn chat with question rewriting
-- Telegram bot front end
+- Telegram front end so actual students use it
 
-## Project layout
+## Layout
 
 ```
 app/        config, llm (Ollama + retry), chunking, ingest, retrieve, answer, api
-static/     single-page chat UI
+static/     the chat page, plain HTML/JS
 eval/       question drafting, eval runner, results
 tests/      pytest
-data/raw/   source regulations (you supply these)
-data/index/ chunks.jsonl + Qdrant local storage (generated)
+data/raw/   source regulations
+data/index/ chunks.jsonl + Qdrant storage (generated, gitignored)
 ```
