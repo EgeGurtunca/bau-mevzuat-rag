@@ -36,3 +36,9 @@ def test_answer_maps_llm_output(monkeypatch):
     text, cites = answer("soru?", C)
     assert text == "Madde ikiye göre [1]."  # renumbered to match the citation list
     assert [c.id for c in cites] == ["d:2"]
+
+
+def test_parse_citations_handles_comma_lists():
+    text, cites = parse_citations("Ücret ödenir [2, 3]. Süre bir yıldır [7, 7].", C)
+    assert text == "Ücret ödenir [1][2]. Süre bir yıldır ."
+    assert [c.id for c in cites] == ["d:2", "d:3"]

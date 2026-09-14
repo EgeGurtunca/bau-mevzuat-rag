@@ -74,4 +74,11 @@ class Retriever:
             return self.sparse(question)[:k]
         d, s = self.dense(question), self.sparse(question)
         fused = rrf([[c.id for c, _ in d], [c.id for c, _ in s]])
-        return [(self.by_id[cid], score) for cid, score in fused[:k]]
+        top = [cid for cid, _ in fused[:k]]
+        # Each retriever's #1 is guaranteed a seat: a rare exact term (BM25 rank 1) must not be
+        # outvoted by dense consensus and pushed past k. Observed with "onur öğrencisi" -> Madde 34.
+        for must in (d[:1] + s[:1]):
+            if must[0].id not in top:
+                top[-1] = must[0].id
+        scores = dict(fused)
+        return [(self.by_id[cid], scores[cid]) for cid in top]

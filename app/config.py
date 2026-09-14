@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+# 127.0.0.1, not localhost: on Windows "localhost" tries ::1 first and Ollama only listens on IPv4 -> ~2 s per request
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
 EMBED_DIM = 1024
 ANSWER_MODEL = os.getenv("ANSWER_MODEL", "qwen2.5:7b")

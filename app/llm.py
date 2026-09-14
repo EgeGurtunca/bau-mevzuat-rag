@@ -56,7 +56,7 @@ def embed(texts: list[str], task: str = "RETRIEVAL_DOCUMENT") -> list[list[float
     # `task` is kept for API symmetry; bge-m3 uses the same embedding for queries and documents.
     out: list[list[float]] = []
     for i in range(0, len(texts), 32):
-        res = retry(lambda: _post("/api/embed", {"model": config.EMBED_MODEL, "input": texts[i:i + 32]}))
+        res = retry(lambda: _post("/api/embed", {"model": config.EMBED_MODEL, "input": texts[i:i + 32], "keep_alive": "30m"}))
         out.extend(res["embeddings"])
     return out
 
@@ -67,6 +67,7 @@ def generate(prompt: str, model: str | None = None) -> str:
         "model": model or config.ANSWER_MODEL,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": 0, "num_ctx": 8192},
+        "keep_alive": "30m",  # avoid the ~2 s reload (50 s cold) between questions
+        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 300},
     }))
     return res["response"].strip()

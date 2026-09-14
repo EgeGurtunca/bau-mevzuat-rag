@@ -65,7 +65,11 @@ paragraph `(n)` boundaries; anything without article structure falls back to 400
 
 **Retrieval.** Three modes so I could compare them: dense (bge-m3, 1024-d, in Qdrant), BM25 over 5-character
 prefixes (a cheap Turkish stemmer — `sınavlara`, `sınavın`, `sınav` all become `sınav`), and hybrid, which
-fuses the two with Reciprocal Rank Fusion. Hybrid is the default.
+fuses the two with Reciprocal Rank Fusion. Hybrid is the default, with one rule on top of plain RRF: each
+retriever's #1 result is guaranteed a slot in the top-k. I added that after "onur öğrencisi" (honour student)
+— BM25 put the one article containing "onur" at rank 1, dense didn't have it in its top 10 at all, and RRF
+averaged it out to rank 7, so the model never saw it and confidently invented a GPA threshold. With the
+rule it's in the top 5 and the model correctly says the regulation doesn't specify one.
 
 **Grounding.** The model only sees the retrieved articles, has to tag each claim with `[n]`, and has to answer
 exactly `Bu konuda yönetmeliklerde bilgi bulamadım.` when the context doesn't cover the question. Citation
@@ -74,6 +78,13 @@ citation list always agree. If retrieval comes back empty, the model isn't calle
 
 **Guardrails.** Question length 3–500 chars, `k ≤ 10`, retry with backoff on 5xx/connection errors, 503
 instead of a stack trace when the backend is down.
+
+**Latency.** About 1 s per question on an RTX 4090 laptop (0.1 s retrieval, the rest is the 7B model). My
+first version took 9.7 s and I assumed that was just local inference. Measuring showed otherwise: every Ollama
+call had a fixed ~2 s cost, and it turned out to be `localhost` resolving to `::1` first on Windows while
+Ollama only listens on IPv4 — two calls per question, four seconds of nothing. `127.0.0.1` fixed it. The
+other half was the model writing 400-token essays; capping the prompt at "3–4 sentences" brought generation
+to ~50 tokens. Both were invisible until I timed each stage separately.
 
 ## Evaluation
 
@@ -121,8 +132,8 @@ same way. Each cleanup moved dense MRR: 0.825 → 0.847 → 0.864. Chunk quality
 pytest
 ```
 
-29 tests, no network: chunking edge cases, RRF, BM25, citation parsing and renumbering, the API with the
-LLM and retriever mocked, eval metrics.
+31 tests, no network: chunking edge cases, RRF and the top-hit guarantee, BM25, citation parsing and
+renumbering, the API with the LLM and retriever mocked, eval metrics.
 
 ## What's next
 

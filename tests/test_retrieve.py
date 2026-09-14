@@ -32,3 +32,13 @@ def test_hybrid_fuses_dense_and_sparse(monkeypatch):
     ids = [c.id for c, _ in r.search("sınav ne zaman yapılır", mode="hybrid", k=3)]
     assert ids[0] == "d:2"  # ranked by both -> first
     assert set(ids) == {"d:2", "d:3"}
+
+
+def test_hybrid_keeps_each_retrievers_top_hit(monkeypatch):
+    many = [Chunk(id=f"d:{i}", doc_title="D", text=f"metin {i}") for i in range(10)]
+    r = Retriever(many, qdrant=None)
+    # dense ranks 0..7; sparse's #1 is 9, which dense never returns -> RRF alone drops it past k
+    monkeypatch.setattr(r, "dense", lambda q, n=10: [(many[i], 1.0) for i in range(8)])
+    monkeypatch.setattr(r, "sparse", lambda q, n=10: [(many[9], 5.0), (many[0], 1.0), (many[1], 1.0)])
+    ids = [c.id for c, _ in r.search("x", mode="hybrid", k=5)]
+    assert "d:9" in ids and len(ids) == 5 and ids[0] == "d:0"
