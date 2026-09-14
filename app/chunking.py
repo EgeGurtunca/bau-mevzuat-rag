@@ -35,9 +35,7 @@ def split(text: str, doc_title: str, slug: str) -> list[Chunk]:
         body = text[m.start():end].strip()
         no = int(m.group(1))
         heading = _heading_before(text, m.start())
-        next_heading = _heading_before(text, matches[i + 1].start()) if i + 1 < len(matches) else None
-        if next_heading and body.endswith(next_heading):  # the next article's heading sits above it, inside our slice
-            body = body[: -len(next_heading)].rstrip()
+        body = _strip_trailing_headings(body)  # the next article's (and section's) headings sit inside our slice
         parts = _split_long(body)
         for j, part in enumerate(parts):
             cid = f"{slug}:{no}" if len(parts) == 1 else f"{slug}:{no}.{j + 1}"
@@ -54,6 +52,21 @@ def _heading_before(text: str, pos: int) -> str | None:
     if len(line) > 80 or ARTICLE_RE.match(line) or line.startswith("("):
         return None
     return line
+
+
+def _looks_like_heading(line: str) -> bool:
+    """Short line, no sentence punctuation at the end, not a numbered/lettered paragraph."""
+    return (len(line) <= 80 and not line.endswith((".", ":", ";", ","))
+            and not line.startswith("(") and not re.match(r"^[a-zçğıöşü]\)", line))
+
+
+def _strip_trailing_headings(body: str, max_lines: int = 3) -> str:
+    """Drop heading-looking lines from the end of an article (they belong to the next article/section)."""
+    lines = body.rstrip().splitlines()
+    while len(lines) > 1 and max_lines and _looks_like_heading(lines[-1].strip()):
+        lines.pop()
+        max_lines -= 1
+    return "\n".join(lines).rstrip()
 
 
 def _split_long(body: str) -> list[str]:

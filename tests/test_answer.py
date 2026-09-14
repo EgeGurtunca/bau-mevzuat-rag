@@ -5,10 +5,10 @@ from app.chunking import Chunk
 C = [Chunk(id=f"d:{i}", doc_title="Doc", article_no=i, text=f"madde {i}") for i in (1, 2, 3)]
 
 
-def test_parse_citations_keeps_valid_drops_invalid():
-    text, cites = parse_citations("Cevap [1] ve [3] ve [9].", C)
-    assert [c.id for c in cites] == ["d:1", "d:3"]
-    assert "[9]" not in text and "[1]" in text
+def test_parse_citations_renumbers_and_drops_invalid():
+    text, cites = parse_citations("Cevap [3] ve [1] ve [9] ve [3].", C)
+    assert [c.id for c in cites] == ["d:3", "d:1"]
+    assert text == "Cevap [1] ve [2] ve  ve [1]."
 
 
 def test_parse_citations_dedupes():
@@ -34,5 +34,5 @@ def test_answer_without_chunks_skips_llm(monkeypatch):
 def test_answer_maps_llm_output(monkeypatch):
     monkeypatch.setattr(answer_mod.llm, "generate", lambda *_a, **_k: "Madde ikiye göre [2].")
     text, cites = answer("soru?", C)
-    assert text == "Madde ikiye göre [2]."
+    assert text == "Madde ikiye göre [1]."  # renumbered to match the citation list
     assert [c.id for c in cites] == ["d:2"]

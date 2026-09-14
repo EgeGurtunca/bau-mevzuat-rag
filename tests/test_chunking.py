@@ -48,3 +48,10 @@ def test_next_heading_not_leaked_into_previous_chunk():
     chunks = split(SAMPLE, "T", "t")
     assert not chunks[0].text.rstrip().endswith("Kapsam")
     assert not chunks[1].text.rstrip().endswith("Dayanak")
+
+
+def test_section_heading_not_leaked_into_previous_chunk():
+    text = "MADDE 35 – (1) Son fıkra.\nBEŞİNCİ BÖLÜM\nDiploma Hakkı ve Diplomalar\nDiploma hakkı\nMADDE 36 – (1) Metin."
+    chunks = split(text, "T", "t")
+    assert chunks[0].text == "MADDE 35 – (1) Son fıkra."
+    assert chunks[1].heading == "Diploma hakkı"
