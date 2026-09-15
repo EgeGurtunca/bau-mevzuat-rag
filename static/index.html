@@ -68,9 +68,12 @@
   .a.none { color: var(--muted); font-style: italic; }
   .cite {
     display: inline-block; font: 600 11px/1 var(--mono); color: var(--red); background: var(--red-soft);
-    border-radius: 4px; padding: 3px 5px; margin: 0 1px; vertical-align: 2px; cursor: default;
+    border-radius: 4px; padding: 3px 5px; margin: 0 1px; vertical-align: 2px; cursor: pointer;
   }
+  .cite:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   .cite.hot, .art.hot { box-shadow: 0 0 0 2px var(--red); }
+  .art.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--red); } }
   .meta { font: 12px var(--mono); color: var(--muted); margin: 10px 0 0; }
   .err { color: var(--red); }
 
@@ -92,7 +95,7 @@
     .art .no { margin-bottom: 8px; }
     main { padding-top: 28px; }
   }
-  @media (prefers-reduced-motion: reduce) { .qa, .bar i { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .qa, .bar i, .art.flash { animation: none; } .art.flash { box-shadow: 0 0 0 3px var(--red); } }
 </style>
 </head>
 <body>
@@ -142,7 +145,7 @@ $("q").addEventListener("keydown", e => {
 
 function render(question, body) {
   const none = body.answer === NOT_FOUND;
-  const answer = esc(body.answer).replace(/\[(\d+)\]/g, (_, n) => `<span class="cite" data-n="${n}">${n}</span>`);
+  const answer = esc(body.answer).replace(/\[(\d+)\]/g, (_, n) => `<span class="cite" data-n="${n}" role="button" tabindex="0" title="Kaynağa git">${n}</span>`);
   const arts = body.citations.map((c, i) => `
     <article class="art${c.text.length > 700 ? " long" : ""}" data-n="${i + 1}">
       <div class="no"><small>KAYNAK ${i + 1}</small>${c.article_no ? `Madde ${c.article_no}` : "—"}</div>
@@ -184,8 +187,20 @@ $("f").addEventListener("submit", async e => {
   }
 });
 
+function goToSource(cite) {
+  const art = cite.closest(".qa").querySelector(`.art[data-n="${cite.dataset.n}"]`); if (!art) return;
+  art.classList.add("open");
+  const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  art.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+  art.classList.remove("flash"); void art.offsetWidth; art.classList.add("flash");
+}
 $("stream").addEventListener("click", e => {
+  const cite = e.target.closest(".cite"); if (cite) return goToSource(cite);
   const art = e.target.closest(".art.long"); if (art) art.classList.toggle("open");
+});
+$("stream").addEventListener("keydown", e => {
+  const cite = e.target.closest(".cite");
+  if (cite && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); goToSource(cite); }
 });
 
 // hover a [n] marker <-> its article card
