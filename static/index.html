@@ -102,7 +102,7 @@
 <main>
   <header>
     <h1>BAU <b>Mevzuat</b></h1>
-    <p>Yönetmelikte ne yazıyor? Sor, maddesiyle cevaplasın.</p>
+    <p>Anayasa ve BAU yönetmelikleri. Sor, maddesiyle cevaplasın.</p>
   </header>
 
   <form id="f">
@@ -123,6 +123,7 @@
       <button type="button">Kayıt dondurunca ücret öder miyim?</button>
       <button type="button">Bütünleme sınavına kimler girebilir?</button>
       <button type="button">Diplomamı kaybedersem ne yapmalıyım?</button>
+      <button type="button">Cumhurbaşkanı kaç yıl için seçilir?</button>
     </div>
   </form>
 
@@ -132,7 +133,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const NOT_FOUND = "Bu konuda yönetmeliklerde bilgi bulamadım.";
+const NOT_FOUND = "Bu konuda mevzuatta bilgi bulamadım.";
 
 function ask(question) {
   $("q").value = question;
@@ -148,11 +149,11 @@ function render(question, body) {
   const answer = esc(body.answer).replace(/\[(\d+)\]/g, (_, n) => `<span class="cite" data-n="${n}" role="button" tabindex="0" title="Kaynağa git">${n}</span>`);
   const arts = body.citations.map((c, i) => `
     <article class="art${c.text.length > 700 ? " long" : ""}" data-n="${i + 1}">
-      <div class="no"><small>KAYNAK ${i + 1}</small>${c.article_no ? `Madde ${c.article_no}` : "—"}</div>
+      <div class="no"><small>KAYNAK ${i + 1}</small>${c.article_no ? `${c.article_kind ? c.article_kind + " " : ""}Madde ${c.article_no}` : "—"}</div>
       <div>
         ${c.heading ? `<p class="head">${esc(c.heading)}</p>` : ""}
         <p class="doc">${esc(c.doc_title)}</p>
-        <p class="txt">${esc(c.text.replace(/^MADDE\s+\d+\s*[-–—]?\s*/i, ""))}</p>
+        <p class="txt">${esc(c.text.replace(/^(?:(?:GEÇİCİ|EK)\s+)?MADDE\s+\d+\s*[-–—]?\s*/i, ""))}</p>
         <p class="more">devamını göster</p>
       </div>
     </article>`).join("");

@@ -55,3 +55,33 @@ def test_section_heading_not_leaked_into_previous_chunk():
     chunks = split(text, "T", "t")
     assert chunks[0].text == "MADDE 35 – (1) Son fıkra."
     assert chunks[1].heading == "Diploma hakkı"
+
+
+def test_gecici_and_ek_madde_are_separate_articles():
+    text = "Madde 177 – Son madde.\nGeçici Madde 1 – Geçici hüküm.\nEk Madde 2 – Ek hüküm."
+    chunks = split(text, "Anayasa", "anayasa")
+    assert [(c.id, c.article_no, c.article_kind) for c in chunks] == [
+        ("anayasa:177", 177, None), ("anayasa:g1", 1, "Geçici"), ("anayasa:e2", 2, "Ek")]
+    assert chunks[0].text == "Madde 177 – Son madde."
+
+
+def test_appendix_after_last_article_is_dropped():
+    text = ("Madde 1 – Birinci.\nMadde 2 – İkinci.\n"
+            "18/10/1982 TARİHLİ VE 2709 SAYILI KANUNA İŞLENEMEYEN HÜKÜMLER\n"
+            "1- 4121 sayılı Kanunun hükmüdür.\nMadde 16 – Bu Kanunun halkoylamasına sunulması halinde.")
+    chunks = split(text, "A", "a")
+    assert [c.id for c in chunks] == ["a:1", "a:2"]
+    assert chunks[1].text == "Madde 2 – İkinci."
+
+
+def test_duplicate_article_numbers_get_distinct_ids():
+    chunks = split("Madde 4 – Bir.\nMadde 4 – İki.", "A", "a")
+    assert [c.id for c in chunks] == ["a:4", "a:4-dup"]
+
+
+def test_long_article_without_fikra_markers_splits_on_lines():
+    line = " ".join(["kelime"] * 250)
+    text = "Geçici Madde 20 – " + line + "\n" + line + "\n" + line
+    chunks = split(text, "A", "a")
+    assert [c.id for c in chunks] == ["a:g20.1", "a:g20.2"]
+    assert all(len(c.text.split()) <= 600 for c in chunks)

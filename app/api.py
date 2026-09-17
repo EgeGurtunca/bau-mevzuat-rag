@@ -34,6 +34,7 @@ class AskRequest(BaseModel):
 class Citation(BaseModel):
     doc_title: str
     article_no: int | None
+    article_kind: str | None = None
     heading: str | None
     text: str
 

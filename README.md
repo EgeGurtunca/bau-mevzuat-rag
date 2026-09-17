@@ -1,7 +1,7 @@
 # bau-mevzuat-rag
 
-Ask a question about Bahçeşehir University's regulations and get an answer that points at the exact article
-it came from. Runs entirely on my laptop — no API keys, no cloud.
+Ask a question about the Turkish Constitution or Bahçeşehir University's regulations and get an answer that
+points at the exact article it came from. Runs entirely on my laptop — no API keys, no cloud.
 
 <!-- docs/demo.gif -->
 
@@ -26,8 +26,8 @@ uvicorn app.api:app --reload                                      # http://local
 Anything with ~8 GB of GPU or unified memory is fine. It works on CPU too, just slower. Models can be swapped
 through `.env` (see `.env.example`) — any Ollama chat/embedding model works.
 
-The two regulations in `data/raw/` are the raw HTML from [mevzuat.gov.tr](https://www.mevzuat.gov.tr)
-(nos. 33950 and 42316). Drop any other `.pdf`, `.docx`, `.html` or `.txt` in there and re-run ingest; the
+`data/raw/` holds the raw HTML from [mevzuat.gov.tr](https://www.mevzuat.gov.tr): the Constitution (law no. 2709)
+and the two BAU regulations (nos. 33950 and 42316). Drop any other `.pdf`, `.docx`, `.html` or `.txt` in there and re-run ingest; the
 file name becomes the document title in citations.
 
 ### API
@@ -59,9 +59,11 @@ question ──► dense top-10 ─┐
          └─► BM25  top-10 ─┴─► RRF fusion ─► top-5 ─► prompt ─► Ollama ─► answer + [n] citations
 ```
 
-**Chunking.** Turkish regulations are written as `MADDE 5 – (1) ... (2) ...`, so one article is one chunk.
-That's the natural unit of meaning and the natural unit to cite. Articles over 600 words get split at
-paragraph `(n)` boundaries; anything without article structure falls back to 400-word windows with overlap.
+**Chunking.** Turkish legislation is written as `MADDE 5 – (1) ... (2) ...`, so one article is one chunk.
+That's the natural unit of meaning and the natural unit to cite. `Geçici Madde` / `Ek Madde` are articles
+too, with their own ids. Articles over 600 words get split at paragraph `(n)` boundaries, or at line breaks
+when a document doesn't number its paragraphs; anything without article structure falls back to 400-word
+windows with overlap. The amending-law appendix mevzuat.gov.tr attaches after the last article is dropped.
 
 **Retrieval.** Three modes so I could compare them: dense (bge-m3, 1024-d, in Qdrant), BM25 over 5-character
 prefixes (a cheap Turkish stemmer — `sınavlara`, `sınavın`, `sınav` all become `sınav`), and hybrid, which
@@ -72,7 +74,7 @@ averaged it out to rank 7, so the model never saw it and confidently invented a 
 rule it's in the top 5 and the model correctly says the regulation doesn't specify one.
 
 **Grounding.** The model only sees the retrieved articles, has to tag each claim with `[n]`, and has to answer
-exactly `Bu konuda yönetmeliklerde bilgi bulamadım.` when the context doesn't cover the question. Citation
+exactly `Bu konuda mevzuatta bilgi bulamadım.` when the context doesn't cover the question. Citation
 markers that don't map to a retrieved chunk get stripped, and the rest are renumbered so the answer and the
 citation list always agree. If retrieval comes back empty, the model isn't called at all.
 
@@ -100,22 +102,36 @@ python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 
 | mode | Recall@5 | MRR | Faithfulness | Correctness |
 |---|---|---|---|---|
-| dense | 1.000 | **0.864** | 0.967 | 0.967 |
-| bm25 | 0.933 | 0.756 | 1.000 | 1.000 |
-| hybrid | 1.000 | 0.861 | 0.967 | 0.967 |
+| dense | 1.000 | 0.839 | 0.967 | 0.967 |
+| bm25 | 0.967 | 0.801 | 0.900 | 0.900 |
+| hybrid | 1.000 | **0.861** | 0.933 | 0.933 |
 
-_30 human-reviewed questions over 100 article chunks. `qwen2.5:7b` answers and judges, `bge-m3` embeds.
-Raw numbers per run are in `eval/results/`._
+_30 human-reviewed questions over 302 article chunks (Constitution + two BAU regulations). `qwen2.5:7b`
+answers and judges, `bge-m3` embeds. Raw numbers per run are in `eval/results/`._
+
+The same 30 questions, before and after adding the Constitution (100 → 302 chunks):
+
+| mode | MRR @100 | MRR @302 |
+|---|---|---|
+| dense | **0.864** | 0.839 |
+| bm25 | 0.756 | 0.801 |
+| hybrid | 0.861 | **0.861** |
+
+Tripling the corpus with off-topic articles hurt dense (more plausible-looking distractors), *helped* BM25
+(IDF sharpened — BAU-specific terms became rarer relative to the whole corpus), and left hybrid exactly where
+it was. On a tiny corpus dense alone was enough; the moment the corpus grew, hybrid pulled ahead. That is
+the whole argument for hybrid search in one table.
 
 - **Recall@5 / MRR** — is the article the question was written from in the top 5, and how high up.
 - **Faithfulness** — every claim in the answer is backed by a cited article (LLM judge, yes/no).
 - **Correctness** — the answer matches the reference I checked by hand (LLM judge, yes/no).
 
-What I take from the table: BM25 alone misses 2 of 30 questions (paraphrases with no shared stem), so
-dense and hybrid clearly win on retrieval. The judge columns differ by a single question (1/30 = 0.033),
-which is noise at this sample size — once the right article is in the top 5, answer quality is the same
-across modes. I keep hybrid as the default because it has dense's recall and stays robust on exact-term
-queries (article numbers, grade letters) where BM25 is strongest.
+What I take from the table: BM25 alone still misses a paraphrased question with no shared stem, so dense
+and hybrid win on recall. The judge columns differ by one or two questions (1/30 = 0.033), which is noise
+at this sample size — once the right article is in the top 5, answer quality is the same across modes.
+Hybrid is the default because it has dense's recall, stays robust on exact-term queries (article numbers,
+grade letters) where BM25 is strongest, and — see above — is the only mode that didn't lose ground when
+the corpus grew.
 
 **Two honest caveats.** The questions are generated *from* their target article, so they share its
 vocabulary, which flatters retrieval — Recall@5 saturating on a 100-chunk corpus says more about the test
@@ -127,13 +143,20 @@ wraps lines *inside* `<span>`s, so a naive HTML-to-text split headings like "Der
 and leaked the next article's heading into the previous chunk. Section headers ("BEŞİNCİ BÖLÜM …") leaked the
 same way. Each cleanup moved dense MRR: 0.825 → 0.847 → 0.864. Chunk quality *is* retrieval quality.
 
+Adding the Constitution surfaced three more, all in one afternoon: it has 24 `Geçici Madde n` (transitional
+articles) that the `MADDE n` regex silently folded into article 177; mevzuat.gov.tr appends the full text of
+every amending law after the last article, so their own "Madde 4", "Madde 16" collided with the real ones
+(the appendix is now cut at the "KANUNA İŞLENEMEYEN HÜKÜMLER" marker); and the Constitution doesn't number
+its paragraphs `(1) (2)`, so the long-article splitter had nothing to split on and produced a 3,400-word
+chunk (it now falls back to line breaks). Every new document type breaks the chunker somewhere.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-31 tests, no network: chunking edge cases, RRF and the top-hit guarantee, BM25, citation parsing and
+35 tests, no network: chunking edge cases (transitional articles, appendix cut, duplicate numbers), RRF and the top-hit guarantee, BM25, citation parsing and
 renumbering, the API with the LLM and retriever mocked, eval metrics.
 
 ## What's next

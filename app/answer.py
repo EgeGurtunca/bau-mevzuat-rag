@@ -1,13 +1,13 @@
-"""Grounded answer generation: numbered context -> Gemini -> answer text + cited chunks."""
+"""Grounded answer generation: numbered context -> LLM -> answer text + cited chunks."""
 import re
 
 from app import llm
-from app.chunking import Chunk
+from app.chunking import Chunk, article_label
 
-NOT_FOUND = "Bu konuda yönetmeliklerde bilgi bulamadım."
+NOT_FOUND = "Bu konuda mevzuatta bilgi bulamadım."
 CITE_RE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")  # [2] or [1, 3]
 
-PROMPT = """Sen Bahçeşehir Üniversitesi yönetmelikleri konusunda yardımcı bir asistansın.
+PROMPT = """Sen Türk mevzuatı (Anayasa ve Bahçeşehir Üniversitesi yönetmelikleri) konusunda yardımcı bir asistansın.
 Sadece aşağıdaki BAĞLAM'daki bilgilere dayanarak cevap ver. Soru hangi dildeyse o dilde cevap ver.
 Kısa ve net ol: en fazla 3-4 cümle, madde işareti veya başlık kullanma.
 Her iddianın sonuna dayandığı kaynağın numarasını köşeli parantez içinde ekle, örneğin: "... ücretin %25'ini öder [2]."
@@ -23,7 +23,7 @@ CEVAP:"""
 
 def build_prompt(question: str, chunks: list[Chunk]) -> str:
     ctx = "\n\n".join(
-        f"[{i}] {c.doc_title}, Madde {c.article_no}: {c.text}" if c.article_no else f"[{i}] {c.doc_title}: {c.text}"
+        f"[{i}] {c.doc_title}, {article_label(c.article_kind, c.article_no)}: {c.text}" if c.article_no else f"[{i}] {c.doc_title}: {c.text}"
         for i, c in enumerate(chunks, start=1)
     )
     return PROMPT.format(not_found=NOT_FOUND, context=ctx, question=question, n=len(chunks))
