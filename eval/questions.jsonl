@@ -28,3 +28,13 @@
 {"question": "Tez izleme komitesi ne tür bir komite olur ve ne tür üyeleri olabilir?", "expected_chunk_ids": ["bau-lisansustu-egitim-ve-ogretim-yonetmeligi:25"], "reference_answer": "Tez izleme komitesi, doktora tez önerisi savunmasını kontrol etmek için oluşturulan bir komite olup, tez danışmanından ve Enstitü anabilim/anasanat dalı içinden ve dışından birer üyenin yanı sıra tez danışmanı olmayan üç öğretim üyesinden oluşur."}
 {"question": "Azami öğrenim süresini tamamlamadan mezuniyet için en çok kaç derse ek sınav hakkı olabilir?", "expected_chunk_ids": ["bau-onlisans-ve-lisans-egitim-ogretim-ve-sinav-yonetmeligi:32"], "reference_answer": "En çok iki derse ek sınav hakkı olabilir."}
 {"question": "Yüksek lisans programında muafiyeti uygun bulunan derslerin en düşük ağırlıklı not ortalaması nedir?", "expected_chunk_ids": ["bau-lisansustu-egitim-ve-ogretim-yonetmeligi:48"], "reference_answer": "3,00'den az olamaz."}
+{"question": "Kütüphane hafta sonu kaça kadar açık?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Yemekhanede bir öğün kaç lira?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Kampüsler arası servis saatleri nedir?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Yurt başvuruları ne zaman başlıyor?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Öğrenci kulübü kurmak için kaç üye gerekir?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Bu dönem vize sınavları hangi hafta yapılacak?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Onur öğrencisi olmak için not ortalaması kaç olmalı?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Anayasaya göre asgari ücret kaç lira?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Askerlik süresi kaç aydır?", "expected_chunk_ids": [], "reference_answer": null}
+{"question": "Kira artışı en fazla yüzde kaç olabilir?", "expected_chunk_ids": [], "reference_answer": null}

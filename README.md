@@ -100,14 +100,15 @@ python -m eval.run_eval --no-judge # retrieval metrics only
 python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 ```
 
-| mode | Recall@5 | MRR | Faithfulness | Correctness |
-|---|---|---|---|---|
-| dense | 1.000 | 0.839 | 0.967 | 0.967 |
-| bm25 | 0.967 | 0.801 | 0.900 | 0.900 |
-| hybrid | 1.000 | **0.861** | 0.933 | 0.933 |
+| mode | Recall@5 | MRR | Faithfulness | Correctness | Abstention |
+|---|---|---|---|---|---|
+| dense | 1.000 | 0.839 | 0.967 | 0.967 | 0.900 |
+| bm25 | 0.967 | 0.801 | 0.867 | 0.900 | 0.900 |
+| hybrid | 1.000 | **0.861** | 0.900 | 0.900 | 0.900 |
 
-_30 human-reviewed questions over 302 article chunks (Constitution + two BAU regulations). `qwen2.5:7b`
-answers and judges, `bge-m3` embeds. Raw numbers per run are in `eval/results/`._
+_30 human-reviewed answerable questions plus 10 unanswerable ones, over 302 article chunks (Constitution +
+two BAU regulations). `qwen2.5:7b` answers and judges, `bge-m3` embeds. Raw numbers per run are in
+`eval/results/`._
 
 The same 30 questions, before and after adding the Constitution (100 → 302 chunks):
 
@@ -125,6 +126,9 @@ the whole argument for hybrid search in one table.
 - **Recall@5 / MRR** — is the article the question was written from in the top 5, and how high up.
 - **Faithfulness** — every claim in the answer is backed by a cited article (LLM judge, yes/no).
 - **Correctness** — the answer matches the reference I checked by hand (LLM judge, yes/no).
+- **Abstention** — on questions the corpus cannot answer (cafeteria prices, dorm deadlines, "how many months is
+  military service"), did the system say `bilgi bulamadım` instead of making something up. No judge needed;
+  it's an exact-string check.
 
 What I take from the table: BM25 alone still misses a paraphrased question with no shared stem, so dense
 and hybrid win on recall. The judge columns differ by one or two questions (1/30 = 0.033), which is noise
@@ -132,6 +136,15 @@ at this sample size — once the right article is in the top 5, answer quality i
 Hybrid is the default because it has dense's recall, stays robust on exact-term queries (article numbers,
 grade letters) where BM25 is strongest, and — see above — is the only mode that didn't lose ground when
 the corpus grew.
+
+**The one abstention failure is the most interesting row in the table.** All three modes fail the same
+question: "what GPA do I need to be an honour student?" The regulation only says the Senate sets the rule
+(Madde 34) — no number. With 100 chunks my top-hit guarantee got Madde 34 in front of the model and it
+correctly abstained. With 302 chunks a graduate-school article full of "not ortalaması" outranks Madde 34
+in BM25, the guarantee carries the wrong article, and the model reads the 2.00 threshold from the
+*neighbouring* article on academic standing and confidently applies it to honours. That's the hardest kind
+of hallucination — a plausible number from an adjacent rule — and a rank-fusion trick can't fix it
+reliably. A reranker that actually reads question and article together is the real answer; it's next.
 
 **Two honest caveats.** The questions are generated *from* their target article, so they share its
 vocabulary, which flatters retrieval — Recall@5 saturating on a 100-chunk corpus says more about the test
@@ -161,7 +174,7 @@ renumbering, the API with the LLM and retriever mocked, eval metrics.
 
 ## What's next
 
-- A harder eval set: paraphrased questions, and questions with no answer in the corpus (to measure abstention)
+- Paraphrased eval questions (the current ones share vocabulary with their source article)
 - A reranker as a fourth mode in the table
 - `nomic-embed-text` as a second embedding row, to show the Turkish-vs-English gap with numbers
 - Multi-turn chat with question rewriting

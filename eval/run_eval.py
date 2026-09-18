@@ -1,10 +1,11 @@
-"""Retrieval + answer quality per mode. Run: python -m eval.run_eval [--modes dense,bm25,hybrid] [--no-judge]"""
+"""Retrieval + answer quality per mode, plus abstention on unanswerable questions.
+Run: python -m eval.run_eval [--modes dense,bm25,hybrid] [--no-judge]"""
 import argparse
 import json
 from datetime import date
 
 from app import config, llm
-from app.answer import answer
+from app.answer import NOT_FOUND, answer
 from app.retrieve import Retriever
 
 JUDGE = """Soru: {question}
@@ -47,10 +48,12 @@ def main() -> None:
     with open(config.ROOT / "eval" / "questions.jsonl", encoding="utf-8") as f:
         qs = [json.loads(line) for line in f if line.strip()]
     r = Retriever.load()
+    answerable = [q for q in qs if q["expected_chunk_ids"]]
+    unanswerable = [q for q in qs if not q["expected_chunk_ids"]]  # the right answer is to abstain
     results: dict[str, dict[str, float]] = {}
     for mode in args.modes.split(","):
-        agg = {"recall@5": 0.0, "mrr": 0.0, "faithfulness": 0.0, "correctness": 0.0}
-        for q in qs:
+        agg = {"recall@5": 0.0, "mrr": 0.0, "faithfulness": 0.0, "correctness": 0.0, "abstention": 0.0}
+        for q in answerable:
             hits = r.search(q["question"], mode=mode, k=10)
             ids = [c.id for c, _ in hits]
             agg["recall@5"] += recall_at_k(q["expected_chunk_ids"], ids)
@@ -61,15 +64,23 @@ def main() -> None:
                 faith, corr = judge(q["question"], q["reference_answer"], sources, ans)
                 agg["faithfulness"] += faith
                 agg["correctness"] += corr
-        results[mode] = {k: round(v / len(qs), 3) for k, v in agg.items()}
+        if not args.no_judge:
+            for q in unanswerable:
+                hits = r.search(q["question"], mode=mode, k=5)
+                ans, _ = answer(q["question"], [c for c, _ in hits])
+                agg["abstention"] += 1.0 if ans == NOT_FOUND else 0.0
+                if ans != NOT_FOUND:
+                    print(f"  [{mode}] did not abstain: {q['question']} -> {ans}", flush=True)
+        results[mode] = {k: round(v / (len(unanswerable) if k == "abstention" else len(answerable)), 3)
+                         for k, v in agg.items()}
         print(f"{mode}: {results[mode]}", flush=True)
-    print("\n| mode | Recall@5 | MRR | Faithfulness | Correctness |\n|---|---|---|---|---|")
+    print("\n| mode | Recall@5 | MRR | Faithfulness | Correctness | Abstention |\n|---|---|---|---|---|---|")
     for mode, m in results.items():
-        print(f"| {mode} | {m['recall@5']} | {m['mrr']} | {m['faithfulness']} | {m['correctness']} |")
+        print(f"| {mode} | {m['recall@5']} | {m['mrr']} | {m['faithfulness']} | {m['correctness']} | {m['abstention']} |")
     out = config.ROOT / "eval" / "results" / f"{date.today()}.json"
     out.parent.mkdir(exist_ok=True)
-    out.write_text(json.dumps({"n": len(qs), "judge": not args.no_judge, "results": results}, indent=2),
-                   encoding="utf-8")
+    out.write_text(json.dumps({"n_answerable": len(answerable), "n_unanswerable": len(unanswerable),
+                               "judge": not args.no_judge, "results": results}, indent=2), encoding="utf-8")
     print(f"\nsaved {out}")
 
 
