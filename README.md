@@ -3,7 +3,7 @@
 Ask a question about the Turkish Constitution or Bahçeşehir University's regulations and get an answer that
 points at the exact article it came from. Runs entirely on my laptop — no API keys, no cloud.
 
-<!-- docs/demo.gif -->
+![demo — ask, get the article, open it](docs/demo.gif)
 
 I built this because I kept getting the same questions from friends ("can I freeze my registration?",
 "what happens if I miss the final?") and the answers are all in two long documents nobody reads. It's also
