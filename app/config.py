@@ -12,6 +12,7 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
 EMBED_DIM = 1024
 ANSWER_MODEL = os.getenv("ANSWER_MODEL", "qwen2.5:7b")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", ANSWER_MODEL)
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "15s")  # how long Ollama keeps models in VRAM after a request
 RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")  # optional, see app/rerank.py
 COLLECTION = "bau_mevzuat"
 RAW_DIR = ROOT / "data" / "raw"
