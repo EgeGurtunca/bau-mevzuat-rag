@@ -72,6 +72,11 @@ class Retriever:
             return self.dense(question)[:k]
         if mode == "bm25":
             return self.sparse(question)[:k]
+        if mode == "rerank":
+            # wider net first (both retrievers, 10 each), then a cross-encoder reads question + article together
+            from app.rerank import rerank
+            candidates = {c.id: c for c, _ in self.dense(question, n=10) + self.sparse(question, n=10)}
+            return rerank(question, list(candidates.values()), k)
         d, s = self.dense(question), self.sparse(question)
         fused = rrf([[c.id for c, _ in d], [c.id for c, _ in s]])
         top = [cid for cid, _ in fused[:k]]

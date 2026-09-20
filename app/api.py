@@ -27,7 +27,7 @@ app = FastAPI(title="bau-mevzuat-rag", lifespan=lifespan)
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=500)
-    mode: Literal["dense", "bm25", "hybrid"] = "hybrid"
+    mode: Literal["dense", "bm25", "hybrid", "rerank"] = "hybrid"
     k: int = Field(default=5, ge=1, le=10)
 
 

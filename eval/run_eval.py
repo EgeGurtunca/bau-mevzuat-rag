@@ -41,7 +41,7 @@ def judge(question: str, reference: str, sources: str, ans: str) -> tuple[float,
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--modes", default="dense,bm25,hybrid")
+    ap.add_argument("--modes", default="dense,bm25,hybrid", help="add rerank if sentence-transformers is installed")
     ap.add_argument("--no-judge", action="store_true", help="retrieval metrics only (no answer generation)")
     args = ap.parse_args()
     llm.require_ollama()

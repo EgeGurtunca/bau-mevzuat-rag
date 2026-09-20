@@ -12,7 +12,7 @@ the retrieval layer. I wanted to actually understand chunking, hybrid search and
 a framework, so there's no LangChain here; every step is a short file I wrote and can explain.
 
 **Stack:** Python 3.12 · FastAPI · Ollama (`qwen2.5:7b` for answers, `bge-m3` for embeddings) · Qdrant ·
-rank-bm25 · pytest · Docker
+rank-bm25 · `bge-reranker-v2-m3` (optional) · pytest · Docker
 
 ## Running it
 
@@ -26,6 +26,10 @@ uvicorn app.api:app --reload                                      # http://local
 Anything with ~8 GB of GPU or unified memory is fine. It works on CPU too, just slower. Models can be swapped
 through `.env` (see `.env.example`) — any Ollama chat/embedding model works.
 
+The `rerank` mode needs a cross-encoder, which Ollama doesn't serve: `pip install -e ".[rerank]"` pulls
+sentence-transformers + torch, and `BAAI/bge-reranker-v2-m3` (~1 GB) downloads on first use. Everything
+else works without it.
+
 `data/raw/` holds the raw HTML from [mevzuat.gov.tr](https://www.mevzuat.gov.tr): the Constitution (law no. 2709)
 and the two BAU regulations (nos. 33950 and 42316). Drop any other `.pdf`, `.docx`, `.html` or `.txt` in there and re-run ingest; the
 file name becomes the document title in citations.
@@ -33,7 +37,7 @@ file name becomes the document title in citations.
 ### API
 
 ```
-POST /ask   {"question": "...", "mode": "hybrid" | "dense" | "bm25", "k": 5}
+POST /ask   {"question": "...", "mode": "hybrid" | "dense" | "bm25" | "rerank", "k": 5}
         ->  {"answer": "... [1] ...", "citations": [{doc_title, article_no, heading, text}], "mode", "latency_ms"}
 GET  /health
 GET  /       the chat page
@@ -57,6 +61,7 @@ data/raw/*  ──ingest──►  article chunks ("MADDE n")  ──embed──
 
 question ──► dense top-10 ─┐
          └─► BM25  top-10 ─┴─► RRF fusion ─► top-5 ─► prompt ─► Ollama ─► answer + [n] citations
+                            └─► cross-encoder rerank ─► top-5   (optional "rerank" mode)
 ```
 
 **Chunking.** Turkish legislation is written as `MADDE 5 – (1) ... (2) ...`, so one article is one chunk.
@@ -72,6 +77,12 @@ retriever's #1 result is guaranteed a slot in the top-k. I added that after "onu
 — BM25 put the one article containing "onur" at rank 1, dense didn't have it in its top 10 at all, and RRF
 averaged it out to rank 7, so the model never saw it and confidently invented a GPA threshold. With the
 rule it's in the top 5 and the model correctly says the regulation doesn't specify one.
+
+**Reranking.** A fourth mode: take the top 10 from each retriever (up to 20 candidates) and let
+`bge-reranker-v2-m3`, a cross-encoder, score each (question, article) pair jointly. Unlike the bi-encoder
+it reads both texts at once, so it can tell "the article about X" from "an article that mentions X".
+~220 ms on the GPU in fp16 with 512-token pairs; it was 1.4 s at fp32 / 1024 tokens / 40 candidates before
+I trimmed it.
 
 **Grounding.** The model only sees the retrieved articles, has to tag each claim with `[n]`, and has to answer
 exactly `Bu konuda mevzuatta bilgi bulamadım.` when the context doesn't cover the question. Citation
@@ -104,7 +115,8 @@ python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 |---|---|---|---|---|---|
 | dense | 1.000 | 0.839 | 0.967 | 0.967 | 0.900 |
 | bm25 | 0.967 | 0.801 | 0.867 | 0.900 | 0.900 |
-| hybrid | 1.000 | **0.861** | 0.900 | 0.900 | 0.900 |
+| hybrid | 1.000 | 0.861 | 0.900 | 0.900 | 0.900 |
+| rerank | 1.000 | **0.894** | 0.933 | 0.933 | 0.900 |
 
 _30 human-reviewed answerable questions plus 10 unanswerable ones, over 302 article chunks (Constitution +
 two BAU regulations). `qwen2.5:7b` answers and judges, `bge-m3` embeds. Raw numbers per run are in
@@ -130,12 +142,14 @@ the whole argument for hybrid search in one table.
   military service"), did the system say `bilgi bulamadım` instead of making something up. No judge needed;
   it's an exact-string check.
 
-What I take from the table: BM25 alone still misses a paraphrased question with no shared stem, so dense
-and hybrid win on recall. The judge columns differ by one or two questions (1/30 = 0.033), which is noise
+What I take from the table: reranking is the best ranking (0.894) and the best generation, because a better
+first article gives the model less to be confused by. BM25 alone still misses a paraphrased question with no
+shared stem, so dense, hybrid and rerank win on recall. The judge columns differ by one or two questions (1/30 = 0.033), which is noise
 at this sample size — once the right article is in the top 5, answer quality is the same across modes.
-Hybrid is the default because it has dense's recall, stays robust on exact-term queries (article numbers,
-grade letters) where BM25 is strongest, and — see above — is the only mode that didn't lose ground when
-the corpus grew.
+Hybrid stays the default because it needs nothing beyond Ollama; switch to `rerank` when the extra
+dependency is acceptable. Hybrid has dense's recall, stays robust on exact-term queries (article numbers,
+grade letters) where BM25 is strongest, and — see above — is the only base mode that didn't lose ground
+when the corpus grew.
 
 **The one abstention failure is the most interesting row in the table.** All three modes fail the same
 question: "what GPA do I need to be an honour student?" The regulation only says the Senate sets the rule
@@ -144,7 +158,15 @@ correctly abstained. With 302 chunks a graduate-school article full of "not orta
 in BM25, the guarantee carries the wrong article, and the model reads the 2.00 threshold from the
 *neighbouring* article on academic standing and confidently applies it to honours. That's the hardest kind
 of hallucination — a plausible number from an adjacent rule — and a rank-fusion trick can't fix it
-reliably. A reranker that actually reads question and article together is the real answer; it's next.
+reliably.
+
+I expected the reranker to fix it. It didn't: the cross-encoder also ranks the GPA articles above Madde 34,
+because the question *asks for a number* and Madde 34 has none. Every ranker is answering "which article
+best matches this question", and for a question whose correct answer is "the rule doesn't specify", the
+best-matching article is the wrong one. Reranking still moved overall MRR from 0.861 to 0.894 and lifted
+faithfulness a notch, so it earns its place as the best mode — but this particular failure needs the
+*generator* to be more suspicious, not the retriever to be smarter. A "does the cited article actually
+contain a number for this?" check is the next thing to try.
 
 **Two honest caveats.** The questions are generated *from* their target article, so they share its
 vocabulary, which flatters retrieval — Recall@5 saturating on a 100-chunk corpus says more about the test
@@ -169,13 +191,12 @@ chunk (it now falls back to line breaks). Every new document type breaks the chu
 pytest
 ```
 
-35 tests, no network: chunking edge cases (transitional articles, appendix cut, duplicate numbers), RRF and the top-hit guarantee, BM25, citation parsing and
+36 tests, no network: chunking edge cases (transitional articles, appendix cut, duplicate numbers), RRF and the top-hit guarantee, BM25, citation parsing and
 renumbering, the API with the LLM and retriever mocked, eval metrics.
 
 ## What's next
 
 - Paraphrased eval questions (the current ones share vocabulary with their source article)
-- A reranker as a fourth mode in the table
 - `nomic-embed-text` as a second embedding row, to show the Turkish-vs-English gap with numbers
 - Multi-turn chat with question rewriting
 - Telegram front end so actual students use it

@@ -42,3 +42,20 @@ def test_hybrid_keeps_each_retrievers_top_hit(monkeypatch):
     monkeypatch.setattr(r, "sparse", lambda q, n=10: [(many[9], 5.0), (many[0], 1.0), (many[1], 1.0)])
     ids = [c.id for c, _ in r.search("x", mode="hybrid", k=5)]
     assert "d:9" in ids and len(ids) == 5 and ids[0] == "d:0"
+
+
+def test_rerank_mode_scores_union_of_candidates(monkeypatch):
+    from app import rerank as rerank_mod
+    many = [Chunk(id=f"d:{i}", doc_title="D", text=f"metin {i}") for i in range(6)]
+    r = Retriever(many, qdrant=None)
+    monkeypatch.setattr(r, "dense", lambda q, n=10: [(many[0], 1.0), (many[1], 0.9)])
+    monkeypatch.setattr(r, "sparse", lambda q, n=10: [(many[1], 5.0), (many[5], 1.0)])
+
+    class FakeModel:
+        def predict(self, pairs):
+            return [len(text) for _, text in pairs]  # "metin 5" and "metin 1" tie on length -> stable order
+
+    monkeypatch.setattr(rerank_mod, "_load", lambda: FakeModel())
+    hits = r.search("x", mode="rerank", k=2)
+    assert {c.id for c, _ in hits} <= {"d:0", "d:1", "d:5"} and len(hits) == 2
+    assert all(isinstance(s, float) for _, s in hits)
