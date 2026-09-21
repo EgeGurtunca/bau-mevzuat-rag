@@ -3,13 +3,13 @@
 ![tests](https://github.com/EgeGurtunca/bau-mevzuat-rag/actions/workflows/test.yml/badge.svg)
 
 Ask a question about the Turkish Constitution or Bahçeşehir University's regulations and get an answer that
-points at the exact article it came from. Runs entirely on my laptop — no API keys, no cloud.
+points at the exact article it came from. Runs entirely on my laptop. No API keys, no cloud.
 
-![demo — ask, get the article, open it](docs/demo.gif)
+![demo: ask, get the article, open it](docs/demo.gif)
 
 I built this because I kept getting the same questions from friends ("can I freeze my registration?",
 "what happens if I miss the final?") and the answers are all in two long documents nobody reads. It's also
-the second project in a series where I'm working through the LLM stack one layer at a time — this one is
+the second project in a series where I'm working through the LLM stack one layer at a time. This one is
 the retrieval layer. I wanted to actually understand chunking, hybrid search and evaluation rather than call
 a framework, so there's no LangChain here; every step is a short file I wrote and can explain.
 
@@ -19,14 +19,14 @@ rank-bm25 · `bge-reranker-v2-m3` (optional) · pytest · Docker
 ## Running it
 
 ```bash
-ollama pull bge-m3 && ollama pull qwen2.5:7b                      # https://ollama.com — about 6 GB
+ollama pull bge-m3 && ollama pull qwen2.5:7b                      # https://ollama.com, about 6 GB
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Linux/mac: .venv/bin/pip
 python -m app.ingest                                              # data/raw/* -> chunks + Qdrant
 uvicorn app.api:app --reload                                      # http://localhost:8000
 ```
 
 Anything with ~8 GB of GPU or unified memory is fine. It works on CPU too, just slower. Models can be swapped
-through `.env` (see `.env.example`) — any Ollama chat/embedding model works.
+through `.env` (see `.env.example`); any Ollama chat/embedding model works.
 
 The `rerank` mode needs a cross-encoder, which Ollama doesn't serve: `pip install -e ".[rerank]"` pulls
 sentence-transformers + torch, and `BAAI/bge-reranker-v2-m3` (~1 GB) downloads on first use. Everything
@@ -73,10 +73,10 @@ when a document doesn't number its paragraphs; anything without article structur
 windows with overlap. The amending-law appendix mevzuat.gov.tr attaches after the last article is dropped.
 
 **Retrieval.** Three modes so I could compare them: dense (bge-m3, 1024-d, in Qdrant), BM25 over 5-character
-prefixes (a cheap Turkish stemmer — `sınavlara`, `sınavın`, `sınav` all become `sınav`), and hybrid, which
+prefixes (a cheap Turkish stemmer: `sınavlara`, `sınavın`, `sınav` all become `sınav`), and hybrid, which
 fuses the two with Reciprocal Rank Fusion. Hybrid is the default, with one rule on top of plain RRF: each
-retriever's #1 result is guaranteed a slot in the top-k. I added that after "onur öğrencisi" (honour student)
-— BM25 put the one article containing "onur" at rank 1, dense didn't have it in its top 10 at all, and RRF
+retriever's #1 result is guaranteed a slot in the top-k. I added that after "onur öğrencisi" (honour student):
+BM25 put the one article containing "onur" at rank 1, dense didn't have it in its top 10 at all, and RRF
 averaged it out to rank 7, so the model never saw it and confidently invented a GPA threshold. With the
 rule it's in the top 5 and the model correctly says the regulation doesn't specify one.
 
@@ -97,10 +97,10 @@ instead of a stack trace when the backend is down.
 **Latency.** About 1 s per question on an RTX 4090 laptop (0.1 s retrieval, the rest is the 7B model). My
 first version took 9.7 s and I assumed that was just local inference. Measuring showed otherwise: every Ollama
 call had a fixed ~2 s cost, and it turned out to be `localhost` resolving to `::1` first on Windows while
-Ollama only listens on IPv4 — two calls per question, four seconds of nothing. `127.0.0.1` fixed it. The
+Ollama only listens on IPv4. Two calls per question, four seconds of nothing. `127.0.0.1` fixed it. The
 other half was the model writing 400-token essays; capping the prompt at "3–4 sentences" brought generation
 to ~50 tokens. Both were invisible until I timed each stage separately. A side effect I didn't expect: the
-shorter answers also scored higher on faithfulness (0.933 → 0.967) — less room to drift from the source.
+shorter answers also scored higher on faithfulness (0.933 → 0.967). Less room to drift from the source.
 
 ## Evaluation
 
@@ -133,45 +133,45 @@ The same 30 questions, before and after adding the Constitution (100 → 302 chu
 | hybrid | 0.861 | **0.861** |
 
 Tripling the corpus with off-topic articles hurt dense (more plausible-looking distractors), *helped* BM25
-(IDF sharpened — BAU-specific terms became rarer relative to the whole corpus), and left hybrid exactly where
+(IDF sharpened: BAU-specific terms became rarer relative to the whole corpus), and left hybrid exactly where
 it was. On a tiny corpus dense alone was enough; the moment the corpus grew, hybrid pulled ahead. That is
 the whole argument for hybrid search in one table.
 
-- **Recall@5 / MRR** — is the article the question was written from in the top 5, and how high up.
-- **Faithfulness** — every claim in the answer is backed by a cited article (LLM judge, yes/no).
-- **Correctness** — the answer matches the reference I checked by hand (LLM judge, yes/no).
-- **Abstention** — on questions the corpus cannot answer (cafeteria prices, dorm deadlines, "how many months is
+- **Recall@5 / MRR**: is the article the question was written from in the top 5, and how high up.
+- **Faithfulness**: every claim in the answer is backed by a cited article (LLM judge, yes/no).
+- **Correctness**: the answer matches the reference I checked by hand (LLM judge, yes/no).
+- **Abstention**: on questions the corpus cannot answer (cafeteria prices, dorm deadlines, "how many months is
   military service"), did the system say `bilgi bulamadım` instead of making something up. No judge needed;
   it's an exact-string check.
 
 What I take from the table: reranking is the best ranking (0.894) and the best generation, because a better
 first article gives the model less to be confused by. BM25 alone still misses a paraphrased question with no
 shared stem, so dense, hybrid and rerank win on recall. The judge columns differ by one or two questions (1/30 = 0.033), which is noise
-at this sample size — once the right article is in the top 5, answer quality is the same across modes.
+at this sample size. Once the right article is in the top 5, answer quality is the same across modes.
 Hybrid stays the default because it needs nothing beyond Ollama; switch to `rerank` when the extra
 dependency is acceptable. Hybrid has dense's recall, stays robust on exact-term queries (article numbers,
-grade letters) where BM25 is strongest, and — see above — is the only base mode that didn't lose ground
+grade letters) where BM25 is strongest, and (see above) is the only base mode that didn't lose ground
 when the corpus grew.
 
 **The one abstention failure is the most interesting row in the table.** All three modes fail the same
 question: "what GPA do I need to be an honour student?" The regulation only says the Senate sets the rule
-(Madde 34) — no number. With 100 chunks my top-hit guarantee got Madde 34 in front of the model and it
+(Madde 34), no number. With 100 chunks my top-hit guarantee got Madde 34 in front of the model and it
 correctly abstained. With 302 chunks a graduate-school article full of "not ortalaması" outranks Madde 34
 in BM25, the guarantee carries the wrong article, and the model reads the 2.00 threshold from the
 *neighbouring* article on academic standing and confidently applies it to honours. That's the hardest kind
-of hallucination — a plausible number from an adjacent rule — and a rank-fusion trick can't fix it
+of hallucination, a plausible number from an adjacent rule, and a rank-fusion trick can't fix it
 reliably.
 
 I expected the reranker to fix it. It didn't: the cross-encoder also ranks the GPA articles above Madde 34,
 because the question *asks for a number* and Madde 34 has none. Every ranker is answering "which article
 best matches this question", and for a question whose correct answer is "the rule doesn't specify", the
 best-matching article is the wrong one. Reranking still moved overall MRR from 0.861 to 0.894 and lifted
-faithfulness a notch, so it earns its place as the best mode — but this particular failure needs the
+faithfulness a notch, so it earns its place as the best mode. But this particular failure needs the
 *generator* to be more suspicious, not the retriever to be smarter. A "does the cited article actually
 contain a number for this?" check is the next thing to try.
 
 **Two honest caveats.** The questions are generated *from* their target article, so they share its
-vocabulary, which flatters retrieval — Recall@5 saturating on a 100-chunk corpus says more about the test
+vocabulary, which flatters retrieval: Recall@5 saturating on a 100-chunk corpus says more about the test
 set than the system. MRR is the number I actually watch. And 30 questions is small; the judge columns move
 by one question between runs.
 
