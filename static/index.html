@@ -63,7 +63,7 @@
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
   .qa + .qa { opacity: .62; }
   .qa .q { font: 500 15px var(--sans); color: var(--muted); margin: 0 0 10px; }
-  .qa .q::before { content: "Soru — "; color: var(--red); font-family: var(--mono); font-size: 12px; }
+  .qa .q::before { content: "Soru: "; color: var(--red); font-family: var(--mono); font-size: 12px; }
   .a { font-size: 17px; line-height: 1.6; margin: 0; }
   .a.none { color: var(--muted); font-style: italic; }
   .cite {
@@ -149,7 +149,7 @@ function render(question, body) {
   const answer = esc(body.answer).replace(/\[(\d+)\]/g, (_, n) => `<span class="cite" data-n="${n}" role="button" tabindex="0" title="Kaynağa git">${n}</span>`);
   const arts = body.citations.map((c, i) => `
     <article class="art${c.text.length > 700 ? " long" : ""}" data-n="${i + 1}">
-      <div class="no"><small>KAYNAK ${i + 1}</small>${c.article_no ? `${c.article_kind ? c.article_kind + " " : ""}Madde ${c.article_no}` : "—"}</div>
+      <div class="no"><small>KAYNAK ${i + 1}</small>${c.article_no ? `${c.article_kind ? c.article_kind + " " : ""}Madde ${c.article_no}` : "-"}</div>
       <div>
         ${c.heading ? `<p class="head">${esc(c.heading)}</p>` : ""}
         <p class="doc">${esc(c.doc_title)}</p>
