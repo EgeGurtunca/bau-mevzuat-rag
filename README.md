@@ -1,5 +1,7 @@
 # bau-mevzuat-rag
 
+![tests](https://github.com/EgeGurtunca/bau-mevzuat-rag/actions/workflows/test.yml/badge.svg)
+
 Ask a question about the Turkish Constitution or Bahçeşehir University's regulations and get an answer that
 points at the exact article it came from. Runs entirely on my laptop — no API keys, no cloud.
 
