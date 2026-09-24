@@ -62,13 +62,13 @@ def embed(texts: list[str], task: str = "RETRIEVAL_DOCUMENT") -> list[list[float
 
 
 @observe()
-def generate(prompt: str, model: str | None = None) -> str:
+def generate(prompt: str, model: str | None = None, num_predict: int = 300) -> str:
     res = retry(lambda: _post("/api/generate", {
         "model": model or config.ANSWER_MODEL,
         "prompt": prompt,
         "stream": False,
         "keep_alive": config.OLLAMA_KEEP_ALIVE,  # short by default to free VRAM; a reload costs ~2 s
-        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 300},
+        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": num_predict},
     }))
     return res["response"].strip()
 

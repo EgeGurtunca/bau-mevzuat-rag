@@ -12,7 +12,7 @@ def test_recall_and_mrr():
 
 def test_judge_parses_verdicts(monkeypatch):
     monkeypatch.setattr(run_eval.llm, "generate",
-                        lambda *_a, **_k: "faithfulness: EVET\ncorrectness: HAYIR")
+                        lambda *_a, **_k: "asil_cevap_ayni: HAYIR\nceliski_var: HAYIR\ndesteksiz_iddia_var: HAYIR")
     assert judge("s", "r", "src", "a") == (1.0, 0.0)
 
 
@@ -33,10 +33,10 @@ QS = [{"question": "q1?", "expected_chunk_ids": ["d:1"], "reference_answer": "bi
 def test_two_phases_never_mix_models(monkeypatch):
     calls = []
 
-    def fake_generate(prompt, model=None):
+    def fake_generate(prompt, model=None, num_predict=300):
         calls.append(model)
         if model == "judge-m":
-            return "faithfulness: EVET\ncorrectness: HAYIR"
+            return "asil_cevap_ayni: HAYIR\nceliski_var: HAYIR\ndesteksiz_iddia_var: HAYIR"
         return "Madde bir [1]." if "q1?" in prompt else NOT_FOUND
 
     monkeypatch.setattr(llm, "generate", fake_generate)
@@ -81,3 +81,15 @@ def test_not_found_on_answerable_question_is_wrong_without_asking_the_judge(monk
     recs = [{"mode": "m", "answerable": True, "answer": NOT_FOUND, "sources": [], "question": "q", "reference": "r"}]
     run_eval.judge_answers(recs)
     assert (recs[0]["faithfulness"], recs[0]["correctness"]) == (1.0, 0.0)
+
+
+def test_judge_verdict_is_computed_from_reported_facts(monkeypatch):
+    reasoning = ("3. asil_cevap_ayni: hayır gibi görünüyor ama bakalım\n"
+                 "asil_cevap_ayni: EVET\nceliski_var: HAYIR\ndesteksiz_iddia_var: HAYIR")
+    monkeypatch.setattr(llm, "generate", lambda *_a, **_k: reasoning)
+    assert run_eval.judge("q", "r", "s", "a") == (1.0, 1.0)  # last line wins over the reasoning
+    monkeypatch.setattr(llm, "generate",
+                        lambda *_a, **_k: "asil_cevap_ayni: EVET\nceliski_var: EVET\ndesteksiz_iddia_var: EVET")
+    assert run_eval.judge("q", "r", "s", "a") == (0.0, 0.0)
+    monkeypatch.setattr(llm, "generate", lambda *_a, **_k: "cevap veremiyorum")
+    assert run_eval.judge("q", "r", "s", "a") == (0.0, 0.0)
