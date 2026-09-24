@@ -56,3 +56,28 @@ def test_no_judge_makes_no_model_calls(monkeypatch):
     monkeypatch.setattr(llm, "generate", boom)
     records = run_eval.generate_answers(QS, FakeRetriever(), ["bm25"], model="m", with_answers=False)
     assert all("answer" not in r for r in records) and records[0]["mrr"] == 1.0
+
+
+def test_complete_at_k_needs_every_expected_article():
+    assert run_eval.complete_at_k(["a", "b"], ["a", "x", "b"]) == 1.0
+    assert run_eval.complete_at_k(["a", "b"], ["a", "x", "y"]) == 0.0
+
+
+def test_by_tag_splits_answerable_and_traps():
+    recs = [
+        {"mode": "hybrid", "answerable": True, "tags": ["multi"], "recall@5": 1.0, "complete@5": 0.0, "correctness": 1.0},
+        {"mode": "hybrid", "answerable": False, "tags": ["trap"], "answer": NOT_FOUND},
+        {"mode": "hybrid", "answerable": False, "tags": ["trap"], "answer": "uydurma"},
+    ]
+    t = run_eval.by_tag(recs)
+    assert t["hybrid / multi"] == {"n": 1, "recall@5": 1.0, "complete@5": 0.0, "correctness": 1.0}
+    assert t["hybrid / trap"] == {"n": 2, "abstention": 0.5}
+
+
+def test_not_found_on_answerable_question_is_wrong_without_asking_the_judge(monkeypatch):
+    def boom(*_a, **_k):
+        raise AssertionError("judge called")
+    monkeypatch.setattr(llm, "generate", boom)
+    recs = [{"mode": "m", "answerable": True, "answer": NOT_FOUND, "sources": [], "question": "q", "reference": "r"}]
+    run_eval.judge_answers(recs)
+    assert (recs[0]["faithfulness"], recs[0]["correctness"]) == (1.0, 0.0)

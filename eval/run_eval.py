@@ -6,7 +6,7 @@ Two phases, so only one LLM is in VRAM at a time:
   2. judge:  read that file and grade every answer with the judge model.
 Answers stay on disk, so a different judge (or a fix to the judge prompt) needs only phase 2.
 
-Run: python -m eval.run_eval [--modes dense,bm25,hybrid] [--model NAME] [--no-judge]
+Run: python -m eval.run_eval [--modes dense,bm25,hybrid] [--model NAME] [--no-judge] [--questions FILE]
      python -m eval.run_eval --phase judge --answers eval/results/<date>-answers.jsonl
 """
 import argparse
@@ -37,6 +37,11 @@ def recall_at_k(expected: list[str], got: list[str], k: int = 5) -> float:
     return 1.0 if any(e in got[:k] for e in expected) else 0.0
 
 
+def complete_at_k(expected: list[str], got: list[str], k: int = 5) -> float:
+    """All expected articles in the top k: stricter than recall for questions that need several articles."""
+    return 1.0 if all(e in got[:k] for e in expected) else 0.0
+
+
 def mrr(expected: list[str], got: list[str]) -> float:
     for i, g in enumerate(got, start=1):
         if g in expected:
@@ -57,10 +62,11 @@ def generate_answers(qs: list[dict], retriever, modes: list[str], model: str | N
         for q in qs:
             answerable = bool(q["expected_chunk_ids"])
             hits = retriever.search(q["question"], mode=mode, k=10 if answerable else 5)
-            rec = {"mode": mode, "question": q["question"], "answerable": answerable, "answer_model": model,
+            rec = {"mode": mode, "question": q["question"], "answerable": answerable, "answer_model": model, "tags": q.get("tags", []),
                    "reference": q.get("reference_answer"), "retrieved": [c.id for c, _ in hits]}
             if answerable:
                 rec["recall@5"] = recall_at_k(q["expected_chunk_ids"], rec["retrieved"])
+                rec["complete@5"] = complete_at_k(q["expected_chunk_ids"], rec["retrieved"])
                 rec["mrr"] = mrr(q["expected_chunk_ids"], rec["retrieved"])
             if with_answers:
                 ans, cites = answer(q["question"], [c for c, _ in hits[:5]], model=model)
@@ -73,9 +79,16 @@ def generate_answers(qs: list[dict], retriever, modes: list[str], model: str | N
 def judge_answers(records: list[dict]) -> list[dict]:
     """Phase 2. Grades answerable records in place; unanswerable ones need no judge (exact-string abstention)."""
     for rec in records:
-        if rec["answerable"] and "answer" in rec:
-            sources = "\n".join(f"- {t}" for t in rec["sources"]) or "(yok)"
-            rec["faithfulness"], rec["correctness"] = judge(rec["question"], rec["reference"], sources, rec["answer"])
+        if not (rec["answerable"] and "answer" in rec):
+            continue
+        if rec["answer"] == NOT_FOUND:
+            # Saying "not found" to a question the documents do answer is always wrong, and it makes no claim,
+            # so it is trivially faithful. The 7B judge got this wrong: on the hard set it marked two such
+            # answers correct. A rule, not a model, decides this case.
+            rec["faithfulness"], rec["correctness"] = 1.0, 0.0
+            continue
+        sources = "\n".join(f"- {t}" for t in rec["sources"]) or "(yok)"
+        rec["faithfulness"], rec["correctness"] = judge(rec["question"], rec["reference"], sources, rec["answer"])
     return records
 
 
@@ -96,6 +109,23 @@ def summarize(records: list[dict]) -> dict[str, dict[str, float]]:
     return results
 
 
+def by_tag(records: list[dict]) -> dict[str, dict[str, float]]:
+    """Per (mode, tag) breakdown: answerable tags report retrieval + correctness, traps report abstention."""
+    out = {}
+    for r in records:
+        for tag in r.get("tags", []):
+            out.setdefault((r["mode"], tag), []).append(r)
+    table = {}
+    for (mode, tag), rs in out.items():
+        mean = lambda key: round(sum(x.get(key, 0.0) for x in rs) / len(rs), 3)
+        if rs[0]["answerable"]:
+            table[f"{mode} / {tag}"] = {"n": len(rs), "recall@5": mean("recall@5"), "complete@5": mean("complete@5"),
+                                        "correctness": mean("correctness")}
+        else:
+            table[f"{mode} / {tag}"] = {"n": len(rs), "abstention": round(sum(x.get("answer") == NOT_FOUND for x in rs) / len(rs), 3)}
+    return table
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--modes", default="dense,bm25,hybrid", help="add rerank if sentence-transformers is installed")
@@ -103,14 +133,16 @@ def main() -> None:
     ap.add_argument("--phase", choices=["all", "answer", "judge"], default="all")
     ap.add_argument("--answers", help="answers file to judge (phase judge); default: today's")
     ap.add_argument("--no-judge", action="store_true", help="retrieval metrics only (no answer generation)")
+    ap.add_argument("--questions", default=str(config.ROOT / "eval" / "questions.jsonl"), help="question set (jsonl)")
     args = ap.parse_args()
     results_dir = config.ROOT / "eval" / "results"
     results_dir.mkdir(exist_ok=True)
-    answers_path = Path(args.answers) if args.answers else results_dir / f"{date.today()}-answers.jsonl"
+    stem = Path(args.questions).stem
+    answers_path = Path(args.answers) if args.answers else results_dir / f"{date.today()}-{stem}-answers.jsonl"
 
     if args.phase in ("all", "answer"):
         llm.require_ollama(args.model)
-        with open(config.ROOT / "eval" / "questions.jsonl", encoding="utf-8") as f:
+        with open(args.questions, encoding="utf-8") as f:
             qs = [json.loads(line) for line in f if line.strip()]
         t0 = time.perf_counter()
         records = generate_answers(qs, Retriever.load(), args.modes.split(","), args.model, with_answers=not args.no_judge)
@@ -136,11 +168,16 @@ def main() -> None:
     print("\n| mode | Recall@5 | MRR | Faithfulness | Correctness | Abstention |\n|---|---|---|---|---|---|")
     for mode, m in results.items():
         print(f"| {mode} | {m['recall@5']} | {m['mrr']} | {m['faithfulness']} | {m['correctness']} | {m['abstention']} |")
+    tags = by_tag(records)
+    if tags:
+        print("\n| mode / tag | n | Recall@5 | all expected in top 5 | Correctness | Abstention |\n|---|---|---|---|---|---|")
+        for key, m in tags.items():
+            print(f"| {key} | {m['n']} | {m.get('recall@5', '')} | {m.get('complete@5', '')} | {m.get('correctness', '')} | {m.get('abstention', '')} |")
     n_ans = sum(r["answerable"] for r in records) // max(len(results), 1)
-    out = results_dir / f"{date.today()}.json"
+    out = results_dir / f"{date.today()}-{stem}.json"
     out.write_text(json.dumps({"n_answerable": n_ans, "n_unanswerable": len(records) // max(len(results), 1) - n_ans,
                                "answer_model": records[0].get("answer_model") if records else None, "judge": None if args.no_judge else config.JUDGE_MODEL,
-                               "results": results}, indent=2), encoding="utf-8")
+                               "results": results, "by_tag": tags}, indent=2), encoding="utf-8")
     print(f"\nsaved {out}")
 
 
