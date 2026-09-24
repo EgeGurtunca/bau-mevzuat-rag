@@ -112,6 +112,7 @@ python -m eval.make_questions      # drafts 40 Q/A pairs from random articles ->
 python -m eval.run_eval --no-judge # retrieval metrics only
 python -m eval.run_eval            # + LLM-judged faithfulness / correctness
 python -m eval.run_eval --phase judge --answers eval/results/<date>-answers.jsonl   # re-grade saved answers
+python -m eval.run_eval --questions eval/questions_hard.jsonl --modes hybrid,rerank  # the hard set below
 ```
 
 The eval runs in two phases so only one LLM sits in VRAM at a time. Phase 1 retrieves and writes every
@@ -196,18 +197,64 @@ every amending law after the last article, so their own "Madde 4", "Madde 16" co
 its paragraphs `(1) (2)`, so the long-article splitter had nothing to split on and produced a 3,400-word
 chunk (it now falls back to line breaks). Every new document type breaks the chunker somewhere.
 
+
+### A harder test set
+
+The easy set was saturating, so I made a second one designed to break things: 20 questions
+(`eval/questions_hard.jsonl`), drafted with an AI assistant and checked against the article text. They are
+not real student questions, but each one targets something the easy set couldn't test:
+
+- **paraphrase (8):** everyday words instead of the article's terms. "Okulu tamamen bırakmak istiyorum" has
+  to find the article that only ever says "kayıt sildirme".
+- **multi (6):** the answer needs two paragraphs or two articles combined, like "I'm a fourth-year with a
+  2.10 GPA, can I take more credits than my limit to graduate?"
+- **constitution (3):** the Constitution in plain language ("how long can the police hold me?").
+- **trap (3):** questions that sound answerable but aren't in the documents (Erasmus GPA, exam dates).
+
+| mode / category | n | Recall@5 | all expected in top 5 | Correctness | Abstention |
+|---|---|---|---|---|---|
+| hybrid / paraphrase | 8 | 0.750 | 0.750 | 0.750 | |
+| hybrid / multi | 6 | 1.000 | 0.667 | 0.500 | |
+| hybrid / constitution | 3 | 1.000 | 1.000 | 1.000 | |
+| hybrid / trap | 3 | | | | 1.000 |
+| rerank / paraphrase | 8 | 0.875 | 0.875 | 0.875 | |
+| rerank / multi | 6 | 0.833 | 0.500 | 0.667 | |
+| rerank / constitution | 3 | 1.000 | 1.000 | 1.000 | |
+| rerank / trap | 3 | | | | 0.667 |
+
+Overall that's 15/20 for hybrid and 16/20 for rerank, against the 0.93 correctness the easy set reported.
+What the breakdown shows:
+
+- **Two different failures.** Some are retrieval: "okulu bırakmak" never reaches the "kayıt sildirme"
+  article, because neither BM25 nor the embedding connects the two phrasings. Others happen with the right
+  article already in front of the model: for "I was sick on the day of the final", the article on excused
+  absences was ranked first and the model still answered "not found"; for "I have two courses left and
+  failed both", the article granting an extra exam was in the context and the model said the opposite,
+  that I must retake them. That last one is the worst kind of error, confident and wrong.
+- **Multi-article questions are the weak spot.** Half of them are answered correctly, and for only two in
+  three does retrieval even bring back every article the answer needs.
+- **The judge was wrong too.** The 7B judge marked two "not found" answers as correct. Saying "not found"
+  to a question the documents answer is always wrong, so that case is now decided by a rule instead of the
+  model; correctness above already uses it. (No answer on the easy set was "not found", so its table is
+  unaffected.)
+- **Reranking is a trade.** It fixes a paraphrase miss and lifts correctness, but it also answered a trap
+  question ("can I do the graduation project alone?") with an invented "yes, groups aren't required".
+  A better retriever always finds *something* plausible, and the model trusts it.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-38 tests, no network: chunking edge cases (transitional articles, appendix cut, duplicate numbers), RRF and the top-hit guarantee, BM25, citation parsing and
+41 tests, no network: chunking edge cases (transitional articles, appendix cut, duplicate numbers), RRF and the top-hit guarantee, BM25, citation parsing and
 renumbering, the API with the LLM and retriever mocked, eval metrics.
 
 ## What's next
 
-- Paraphrased eval questions (the current ones share vocabulary with their source article)
+- Query rewriting for everyday phrasing (the paraphrase misses in the hard set)
+- A verification step after generation: does the cited article actually support the answer? (the "two
+  failed courses" answer, and the rerank trap)
 - `nomic-embed-text` as a second embedding row, to show the Turkish-vs-English gap with numbers
 - Multi-turn chat with question rewriting
 - Telegram front end so actual students use it
