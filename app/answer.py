@@ -48,8 +48,8 @@ def parse_citations(text: str, chunks: list[Chunk]) -> tuple[str, list[Chunk]]:
     return CITE_RE.sub(renumber, text).strip(), [chunks[i - 1] for i in order]
 
 
-def answer(question: str, chunks: list[Chunk]) -> tuple[str, list[Chunk]]:
+def answer(question: str, chunks: list[Chunk], model: str | None = None) -> tuple[str, list[Chunk]]:
     if not chunks:  # nothing retrieved -> no LLM call, saves quota
         return NOT_FOUND, []
-    text = llm.generate(build_prompt(question, chunks))
+    text = llm.generate(build_prompt(question, chunks), model=model)
     return parse_citations(text, chunks)

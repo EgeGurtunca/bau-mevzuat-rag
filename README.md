@@ -111,7 +111,16 @@ python -m eval.make_questions      # drafts 40 Q/A pairs from random articles ->
 # I review these by hand and keep the good ones -> eval/questions.jsonl
 python -m eval.run_eval --no-judge # retrieval metrics only
 python -m eval.run_eval            # + LLM-judged faithfulness / correctness
+python -m eval.run_eval --phase judge --answers eval/results/<date>-answers.jsonl   # re-grade saved answers
 ```
+
+The eval runs in two phases so only one LLM sits in VRAM at a time. Phase 1 retrieves and writes every
+answer to `eval/results/<date>-answers.jsonl`, then unloads the answer model; phase 2 reads that file and
+grades it with the judge. My first version interleaved them (answer, judge, answer, judge...), which keeps
+both models loaded for the whole run. Two 7B models fit in 16 GB; a larger answer model next to the judge
+would not, and Ollama would spill layers to the CPU. Splitting the phases also means a change to the judge
+prompt only needs phase 2 (15 s for 40 answers instead of the full 90 s), and `--model` swaps the answer
+model without touching the judge.
 
 | mode | Recall@5 | MRR | Faithfulness | Correctness | Abstention |
 |---|---|---|---|---|---|
@@ -193,7 +202,7 @@ chunk (it now falls back to line breaks). Every new document type breaks the chu
 pytest
 ```
 
-36 tests, no network: chunking edge cases (transitional articles, appendix cut, duplicate numbers), RRF and the top-hit guarantee, BM25, citation parsing and
+38 tests, no network: chunking edge cases (transitional articles, appendix cut, duplicate numbers), RRF and the top-hit guarantee, BM25, citation parsing and
 renumbering, the API with the LLM and retriever mocked, eval metrics.
 
 ## What's next
