@@ -38,7 +38,7 @@ def retry(fn, attempts: int = 3):
             time.sleep(2 ** (i + 1))
 
 
-def require_ollama() -> None:
+def require_ollama(*extra_models: str) -> None:
     """Fail fast with a useful message if Ollama is down or a model is missing."""
     try:
         with urllib.request.urlopen(config.OLLAMA_URL + "/api/tags", timeout=5) as r:
@@ -46,7 +46,7 @@ def require_ollama() -> None:
     except urllib.error.URLError:
         raise SystemExit(f"Ollama is not reachable at {config.OLLAMA_URL}. Install it from https://ollama.com and start it.")
     have |= {n.removesuffix(":latest") for n in have}
-    for m in {config.EMBED_MODEL, config.ANSWER_MODEL, config.JUDGE_MODEL}:
+    for m in {config.EMBED_MODEL, config.ANSWER_MODEL, config.JUDGE_MODEL, *extra_models}:
         if m not in have and m.removesuffix(":latest") not in have:
             raise SystemExit(f"Model '{m}' is not pulled. Run: ollama pull {m}")
 
@@ -71,3 +71,11 @@ def generate(prompt: str, model: str | None = None) -> str:
         "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 300},
     }))
     return res["response"].strip()
+
+
+def unload(model: str) -> None:
+    """Drop a model from VRAM now instead of waiting for keep_alive to expire."""
+    try:
+        _post("/api/generate", {"model": model, "keep_alive": 0}, timeout=30)
+    except urllib.error.URLError:
+        pass  # Ollama gone or model not loaded: nothing to free
