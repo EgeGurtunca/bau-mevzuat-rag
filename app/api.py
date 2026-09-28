@@ -17,7 +17,7 @@ retriever: Retriever | None = None
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global retriever
-    llm.require_ollama()
+    llm.require_ollama(config.ANSWER_MODEL)
     retriever = Retriever.load()
     yield
 

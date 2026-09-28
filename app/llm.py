@@ -39,14 +39,15 @@ def retry(fn, attempts: int = 3):
 
 
 def require_ollama(*extra_models: str) -> None:
-    """Fail fast with a useful message if Ollama is down or a model is missing."""
+    """Fail fast with a useful message if Ollama is down or a model is missing.
+    Checks the embedding model plus whatever the caller will use: the API should not demand the judge."""
     try:
         with urllib.request.urlopen(config.OLLAMA_URL + "/api/tags", timeout=5) as r:
             have = {m["name"] for m in json.load(r)["models"]}
     except urllib.error.URLError:
         raise SystemExit(f"Ollama is not reachable at {config.OLLAMA_URL}. Install it from https://ollama.com and start it.")
     have |= {n.removesuffix(":latest") for n in have}
-    for m in {config.EMBED_MODEL, config.ANSWER_MODEL, config.JUDGE_MODEL, *extra_models}:
+    for m in {config.EMBED_MODEL, *extra_models}:
         if m not in have and m.removesuffix(":latest") not in have:
             raise SystemExit(f"Model '{m}' is not pulled. Run: ollama pull {m}")
 
