@@ -67,6 +67,7 @@ def generate(prompt: str, model: str | None = None, num_predict: int = 300) -> s
         "model": model or config.ANSWER_MODEL,
         "prompt": prompt,
         "stream": False,
+        "think": False,  # thinking models would spend num_predict on hidden reasoning; ignored by the others
         "keep_alive": config.OLLAMA_KEEP_ALIVE,  # short by default to free VRAM; a reload costs ~2 s
         "options": {"temperature": 0, "num_ctx": 8192, "num_predict": num_predict},
     }))
