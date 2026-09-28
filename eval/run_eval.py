@@ -82,7 +82,7 @@ def generate_answers(qs: list[dict], retriever, modes: list[str], model: str | N
     for mode in modes:
         for q in qs:
             answerable = bool(q["expected_chunk_ids"])
-            hits = retriever.search(q["question"], mode=mode, k=10 if answerable else 5)
+            hits = retriever.search(q["question"], mode=mode, k=10)
             rec = {"mode": mode, "question": q["question"], "answerable": answerable, "answer_model": model, "tags": q.get("tags", []),
                    "reference": q.get("reference_answer"), "retrieved": [c.id for c, _ in hits]}
             if answerable:
@@ -90,7 +90,10 @@ def generate_answers(qs: list[dict], retriever, modes: list[str], model: str | N
                 rec["complete@5"] = complete_at_k(q["expected_chunk_ids"], rec["retrieved"])
                 rec["mrr"] = mrr(q["expected_chunk_ids"], rec["retrieved"])
             if with_answers:
-                ans, cites = answer(q["question"], [c for c, _ in hits[:5]], model=model)
+                # Search again with the API's k instead of slicing the top 10: hybrid gives each retriever's #1 the
+                # last seat of whatever k it is asked for, so hits[:k] can differ from what the API would answer from.
+                ctx = retriever.search(q["question"], mode=mode, k=config.CONTEXT_K)
+                ans, cites = answer(q["question"], [c for c, _ in ctx], model=model)
                 rec["answer"] = ans
                 rec["sources"] = [c.text for c in cites]
             records.append(rec)

@@ -14,6 +14,7 @@ ANSWER_MODEL = os.getenv("ANSWER_MODEL", "qwen2.5:7b")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "qwen2.5:14b")  # 31/34 agreement with my hand labels, no false "correct" (eval/check_judge.py)
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "3s")  # VRAM is freed 3s after the last call; a reload costs ~2s
 RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")  # optional, see app/rerank.py
+CONTEXT_K = int(os.getenv("CONTEXT_K", "6"))  # articles given to the answer model; 3 hard-set misses sat at rank 6
 COLLECTION = "bau_mevzuat"
 RAW_DIR = ROOT / "data" / "raw"
 CHUNKS_PATH = ROOT / "data" / "index" / "chunks.jsonl"
