@@ -18,7 +18,7 @@ MADDE:
 
 
 def main(n: int = 40, seed: int = 7) -> None:
-    llm.require_ollama()
+    llm.require_ollama(config.JUDGE_MODEL)
     chunks = [c for c in load_chunks() if len(c.text.split()) > 30]
     random.Random(seed).shuffle(chunks)
     out = config.ROOT / "eval" / "questions.draft.jsonl"

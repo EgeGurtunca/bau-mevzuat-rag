@@ -17,7 +17,7 @@ retriever: Retriever | None = None
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global retriever
-    llm.require_ollama()
+    llm.require_ollama(config.ANSWER_MODEL)
     retriever = Retriever.load()
     yield
 
@@ -28,7 +28,7 @@ app = FastAPI(title="bau-mevzuat-rag", lifespan=lifespan)
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=500)
     mode: Literal["dense", "bm25", "hybrid", "rerank"] = "hybrid"
-    k: int = Field(default=5, ge=1, le=10)
+    k: int = Field(default=config.CONTEXT_K, ge=1, le=10)
 
 
 class Citation(BaseModel):

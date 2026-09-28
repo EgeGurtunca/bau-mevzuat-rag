@@ -7,18 +7,47 @@ from app.chunking import Chunk, article_label
 NOT_FOUND = "Bu konuda mevzuatta bilgi bulamadım."
 CITE_RE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")  # [2] or [1, 3]
 
+# Instructions come after the context: with them on top, the 7B model had forgotten them ~5000 tokens later.
 PROMPT = """Sen Türk mevzuatı (Anayasa ve Bahçeşehir Üniversitesi yönetmelikleri) konusunda yardımcı bir asistansın.
-Sadece aşağıdaki BAĞLAM'daki bilgilere dayanarak cevap ver. Soru hangi dildeyse o dilde cevap ver.
-Kısa ve net ol: en fazla 3-4 cümle, madde işareti veya başlık kullanma.
-Her iddianın sonuna dayandığı kaynağın numarasını köşeli parantez içinde ekle, örneğin: "... ücretin %25'ini öder [2]."
-Kaynak numaraları 1 ile {n} arasındadır; başka numara kullanma.
-Bağlam soruyu cevaplamaya yetmiyorsa sadece şunu yaz: "{not_found}"
+Aşağıda numaralı mevzuat maddeleri ve bir öğrencinin sorusu var.
 
 BAĞLAM:
 {context}
 
 SORU: {question}
-CEVAP:"""
+
+Sadece BAĞLAM'daki maddelere dayanarak cevap ver. Öğrenciler günlük dille sorar, maddeler aynı şeyi resmi
+terimlerle anlatır: soruyu anlamca karşılayan bir madde varsa onu kullan, kelimelerin aynı olmasını bekleme.
+
+Cevabını iki bölüm halinde yaz:
+ALINTI: Soruyu cevaplayan cümleleri bağlamdan kelimesi kelimesine kopyala, her birinin sonuna kaynak numarasını
+ekle, örneğin "... [2]". Sadece gereken cümleleri al, bütün maddeyi kopyalama. Soru birden fazla şey soruyorsa
+her biri için alıntı yap.
+CEVAP: Alıntılara dayanan kısa ve net cevap: en fazla 3-4 cümle, madde işareti veya başlık yok. Sayıları, süreleri
+ve yüzdeleri alıntıdan aynen al. Her iddianın sonuna kaynak numarasını ekle, örneğin "[2]". Soru hangi dildeyse
+cevabı o dilde yaz.
+Kaynak numaraları 1 ile {n} arasındadır; başka numara kullanma.
+
+Maddeler sorunun istediği bilgiyi vermiyorsa bölümleri yazma, sadece şunu yaz: "{not_found}\""""
+ANSWER_RE = re.compile(r"\**CEVAP\**\s*:\**", re.IGNORECASE)
+ALINTI_RE = re.compile(r"\**ALINTI\**\s*:", re.IGNORECASE)
+
+# Told to write NOT_FOUND when the articles don't answer, gemma4 wrote "no date is specified, the Rektörlük
+# announces it" instead. Asking it to judge the context up front (a KARAR: EVET/HAYIR field) fixed those but
+# also refused paraphrased questions whose article was right there. Judging the finished answer is easier:
+# does it say something concrete, or only that the documents don't say? The same sentence ("the university
+# announces the exam dates") answers "when are finals held?" and dodges "what date do this term's finals
+# start?", so the check has to look at what the question asks for, not only at the answer.
+CHECK = """Bir öğrenci şunu sordu: {question}
+Verilen cevap: {answer}
+
+Cevap, sorulan şeyi veriyor mu?
+- Soru genel bir kuralı soruyorsa (ne zaman, kim belirler, nasıl yapılır, zorunlu mu), bir kural söylemek yeterlidir;
+  "X tarafından belirlenir" ya da "duyurulan zamanlarda yapılır" da bir cevaptır: SOMUT.
+- Soru belirli bir bilgi istiyorsa (belirli bir tarih, bir tutar, bir kişinin adı) ve cevap bunu vermeyip sadece
+  kimin belirlediğini ya da duyurduğunu söylüyorsa: YOK.
+- Cevap sadece mevzuatta bir hüküm bulunmadığını ya da bilginin belirtilmediğini söylüyorsa: YOK.
+Tek kelime yaz: SOMUT ya da YOK."""
 
 
 def build_prompt(question: str, chunks: list[Chunk]) -> str:
@@ -51,5 +80,19 @@ def parse_citations(text: str, chunks: list[Chunk]) -> tuple[str, list[Chunk]]:
 def answer(question: str, chunks: list[Chunk], model: str | None = None) -> tuple[str, list[Chunk]]:
     if not chunks:  # nothing retrieved -> no LLM call, saves quota
         return NOT_FOUND, []
-    text = llm.generate(build_prompt(question, chunks), model=model)
-    return parse_citations(text, chunks)
+    # The model copies the relevant sentences first and answers from them; only the answer is shown (the cited
+    # articles are shown anyway). Answering directly, the 7B model misread numbers in articles it had in front of it.
+    text = llm.generate(build_prompt(question, chunks), model=model, num_predict=1000)
+    *quote, ans = ANSWER_RE.split(text)
+    ans = ans.strip()
+    if ans.strip('"').startswith(NOT_FOUND):
+        return NOT_FOUND, []
+    if not quote and ALINTI_RE.search(ans):  # cut off before CEVAP (a quote that looped or copied a whole article)
+        return NOT_FOUND, []
+    check = llm.generate(CHECK.format(question=question, answer=ans), model=model, num_predict=5)
+    if check.strip().strip("*").upper().startswith("YOK"):
+        return NOT_FOUND, []
+    ans, cites = parse_citations(ans, chunks)
+    if not cites and quote:  # some models cite in the quote only; the quoted articles are still the sources
+        cites = parse_citations(quote[0], chunks)[1]
+    return ans, cites

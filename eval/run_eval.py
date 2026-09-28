@@ -11,6 +11,7 @@ Run: python -m eval.run_eval [--modes dense,bm25,hybrid] [--model NAME] [--no-ju
 """
 import argparse
 import json
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -19,18 +20,27 @@ from app import config, llm
 from app.answer import NOT_FOUND, answer
 from app.retrieve import Retriever
 
-JUDGE = """Soru: {question}
-Referans cevap: {reference}
+JUDGE = """Bir öğrencinin sorusuna verilen cevabı değerlendireceksin.
+
+Soru: {question}
+Referans cevap (doğru): {reference}
 Kaynak metinler:
 {sources}
-Verilen cevap: {answer}
+Değerlendirilecek cevap: {answer}
 
-İki soruya sadece EVET veya HAYIR ile, tam olarak şu biçimde cevap ver:
-faithfulness: <EVET|HAYIR>
-correctness: <EVET|HAYIR>
+Adım adım düşün, her adımı tek satırda yaz:
+1. Soru asıl olarak neyi soruyor? (evet/hayır mı, bir sayı mı, bir süre mi, ne yapılması gerektiği mi?)
+2. Referanstaki asıl cevap: sadece bu sorunun cevabını birkaç kelimeyle yaz (örnek: "iki yarıyıl", "dört ders",
+   "evet", "kaydı silinir"). İstisnaları, ikinci koşulları ve gerekçeleri YAZMA.
+3. Değerlendirilecek cevap 2. adımdaki asıl cevabı veriyor mu? Sayılar, süreler, yüzdeler ve evet/hayır aynı olmalı.
+   Eksik ek ayrıntı bunu değiştirmez.
+4. Değerlendirilecek cevap referansla çelişen bir şey söylüyor mu? Bir ayrıntıyı söylememek çelişki DEĞİLDİR;
+   çelişki, referanstakinden farklı bir sayı, süre, kural ya da sonuç söylemektir.
 
-faithfulness: verilen cevaptaki her iddia kaynak metinlerle destekleniyor mu?
-correctness: verilen cevap referans cevapla özde uyuşuyor mu?"""
+En sonda tam olarak şu üç satırı yaz:
+asil_cevap_ayni: <EVET|HAYIR>   (3. adım)
+celiski_var: <EVET|HAYIR>   (4. adım)
+desteksiz_iddia_var: <EVET|HAYIR>   (cevapta kaynak metinlerde geçmeyen bir iddia var mı)"""
 
 
 def recall_at_k(expected: list[str], got: list[str], k: int = 5) -> float:
@@ -49,10 +59,21 @@ def mrr(expected: list[str], got: list[str]) -> float:
     return 0.0
 
 
-def judge(question: str, reference: str, sources: str, ans: str) -> tuple[float, float]:
+def _field(out: str, name: str) -> str | None:
+    """Last '<name>: evet|hayır' in the judge's output; the reasoning above it may use the same words."""
+    hits = re.findall(name + r"\s*:\s*\**\s*(evet|hayır|hayir)", out.lower())
+    return ("hayır" if hits[-1] == "hayir" else hits[-1]) if hits else None
+
+
+def judge(question: str, reference: str, sources: str, ans: str, model: str | None = None) -> tuple[float, float]:
+    """The model only reports facts (same core answer? contradiction? unsupported claim?); the verdict is computed here.
+    Asked for a verdict directly, the 14B judge reasoned 'core answer right, no contradiction' and then wrote
+    'incorrect' anyway because the answer left out a detail."""
     out = llm.generate(JUDGE.format(question=question, reference=reference, sources=sources, answer=ans),
-                       model=config.JUDGE_MODEL).lower()
-    return (1.0 if "faithfulness: evet" in out else 0.0, 1.0 if "correctness: evet" in out else 0.0)
+                       model=model or config.JUDGE_MODEL, num_predict=600)
+    correct = _field(out, "asil_cevap_ayni") == "evet" and _field(out, "celiski_var") == "hayır"
+    faithful = _field(out, "desteksiz_iddia_var") == "hayır"
+    return float(faithful), float(correct)
 
 
 def generate_answers(qs: list[dict], retriever, modes: list[str], model: str | None, with_answers: bool = True) -> list[dict]:
@@ -61,7 +82,7 @@ def generate_answers(qs: list[dict], retriever, modes: list[str], model: str | N
     for mode in modes:
         for q in qs:
             answerable = bool(q["expected_chunk_ids"])
-            hits = retriever.search(q["question"], mode=mode, k=10 if answerable else 5)
+            hits = retriever.search(q["question"], mode=mode, k=10)
             rec = {"mode": mode, "question": q["question"], "answerable": answerable, "answer_model": model, "tags": q.get("tags", []),
                    "reference": q.get("reference_answer"), "retrieved": [c.id for c, _ in hits]}
             if answerable:
@@ -69,7 +90,10 @@ def generate_answers(qs: list[dict], retriever, modes: list[str], model: str | N
                 rec["complete@5"] = complete_at_k(q["expected_chunk_ids"], rec["retrieved"])
                 rec["mrr"] = mrr(q["expected_chunk_ids"], rec["retrieved"])
             if with_answers:
-                ans, cites = answer(q["question"], [c for c, _ in hits[:5]], model=model)
+                # Search again with the API's k instead of slicing the top 10: hybrid gives each retriever's #1 the
+                # last seat of whatever k it is asked for, so hits[:k] can differ from what the API would answer from.
+                ctx = retriever.search(q["question"], mode=mode, k=config.CONTEXT_K)
+                ans, cites = answer(q["question"], [c for c, _ in ctx], model=model)
                 rec["answer"] = ans
                 rec["sources"] = [c.text for c in cites]
             records.append(rec)

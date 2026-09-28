@@ -39,14 +39,15 @@ def retry(fn, attempts: int = 3):
 
 
 def require_ollama(*extra_models: str) -> None:
-    """Fail fast with a useful message if Ollama is down or a model is missing."""
+    """Fail fast with a useful message if Ollama is down or a model is missing.
+    Checks the embedding model plus whatever the caller will use: the API should not demand the judge."""
     try:
         with urllib.request.urlopen(config.OLLAMA_URL + "/api/tags", timeout=5) as r:
             have = {m["name"] for m in json.load(r)["models"]}
     except urllib.error.URLError:
         raise SystemExit(f"Ollama is not reachable at {config.OLLAMA_URL}. Install it from https://ollama.com and start it.")
     have |= {n.removesuffix(":latest") for n in have}
-    for m in {config.EMBED_MODEL, config.ANSWER_MODEL, config.JUDGE_MODEL, *extra_models}:
+    for m in {config.EMBED_MODEL, *extra_models}:
         if m not in have and m.removesuffix(":latest") not in have:
             raise SystemExit(f"Model '{m}' is not pulled. Run: ollama pull {m}")
 
@@ -62,13 +63,14 @@ def embed(texts: list[str], task: str = "RETRIEVAL_DOCUMENT") -> list[list[float
 
 
 @observe()
-def generate(prompt: str, model: str | None = None) -> str:
+def generate(prompt: str, model: str | None = None, num_predict: int = 300) -> str:
     res = retry(lambda: _post("/api/generate", {
         "model": model or config.ANSWER_MODEL,
         "prompt": prompt,
         "stream": False,
+        "think": False,  # thinking models would spend num_predict on hidden reasoning; ignored by the others
         "keep_alive": config.OLLAMA_KEEP_ALIVE,  # short by default to free VRAM; a reload costs ~2 s
-        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 300},
+        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": num_predict},
     }))
     return res["response"].strip()
 
