@@ -1,11 +1,11 @@
 """FastAPI app: POST /ask, GET /health, GET / (chat page). Run: uvicorn app.api:app --reload"""
 import time
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from app import config, llm
 from app.answer import answer
@@ -26,7 +26,7 @@ app = FastAPI(title="bau-mevzuat-rag", lifespan=lifespan)
 
 
 class AskRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=500)
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
     mode: Literal["dense", "bm25", "hybrid", "rerank"] = "hybrid"
     k: int = Field(default=config.CONTEXT_K, ge=1, le=10)
 

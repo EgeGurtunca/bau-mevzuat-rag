@@ -44,3 +44,19 @@ def test_ask_returns_503_on_backend_failure():
 def test_index_page():
     r = TestClient(api.app).get("/")
     assert r.status_code == 200 and "BAU" in r.text
+
+
+def test_ask_rejects_blank_question_and_strips_spaces(monkeypatch):
+    seen = []
+
+    class Recording(FakeRetriever):
+        def search(self, q, mode="hybrid", k=5):
+            seen.append(q)
+            return super().search(q, mode, k)
+
+    api.retriever = Recording()
+    monkeypatch.setattr(api.llm, "generate", lambda *_a, **_k: "Gecme notu 60 puandir [1].")
+    client = TestClient(api.app)
+    assert client.post("/ask", json={"question": "     "}).status_code == 422
+    assert client.post("/ask", json={"question": "  gecme notu?  "}).status_code == 200
+    assert seen == ["gecme notu?"]
